@@ -33,12 +33,20 @@ import API, {
   createAdminUser,
   updateAdminUser,
   deleteAdminUser,
+  getImageUrl,
 } from '../src/api.js';
 
 describe('Frontend API Client Configuration & Endpoints', () => {
   it('should initialize Axios instance with base URL /api', () => {
     assert.ok(API);
     assert.strictEqual(API.defaults.baseURL, '/api');
+  });
+
+  it('should export getImageUrl and resolve image URLs properly', () => {
+    assert.strictEqual(typeof getImageUrl, 'function');
+    assert.strictEqual(getImageUrl(''), '');
+    assert.strictEqual(getImageUrl('/uploads/sample.png'), '/uploads/sample.png');
+    assert.strictEqual(getImageUrl('https://example.com/photo.jpg'), 'https://example.com/photo.jpg');
   });
 
   it('should export all authentication API methods', () => {

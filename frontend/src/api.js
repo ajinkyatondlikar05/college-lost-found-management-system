@@ -1,8 +1,41 @@
 import axios from 'axios';
 
+// Read Vite environment variable if provided, fallback to '/api' for local/Docker
+const rawApiUrl = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_API_URL)
+  ? import.meta.env.VITE_API_URL.trim()
+  : '';
+
+const getBaseURL = () => {
+  if (!rawApiUrl) return '/api';
+  const trimmed = rawApiUrl.replace(/\/+$/, '');
+  return trimmed.endsWith('/api') ? trimmed : `${trimmed}/api`;
+};
+
 const API = axios.create({
-  baseURL: '/api',
+  baseURL: getBaseURL(),
 });
+
+/**
+ * Converts a stored image path into the appropriate absolute or relative URL.
+ * When VITE_API_URL is configured, resolves relative '/uploads/...' against the backend origin.
+ * When VITE_API_URL is not configured, preserves relative '/uploads/...' for local/Docker proxy.
+ */
+export const getImageUrl = (imagePath) => {
+  if (!imagePath) return '';
+  if (/^https?:\/\//i.test(imagePath)) return imagePath;
+
+  const envUrl = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_API_URL)
+    ? import.meta.env.VITE_API_URL.trim()
+    : '';
+
+  if (!envUrl) {
+    return imagePath.startsWith('/') ? imagePath : `/${imagePath}`;
+  }
+
+  const backendOrigin = envUrl.replace(/\/+$/, '').replace(/\/api$/, '');
+  const cleanPath = imagePath.startsWith('/') ? imagePath : `/${imagePath}`;
+  return `${backendOrigin}${cleanPath}`;
+};
 
 // Attach JWT token to every request
 API.interceptors.request.use((config) => {

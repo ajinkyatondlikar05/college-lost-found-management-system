@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { getItemById, deleteItem, updateItem } from '../api';
+import { getItemById, deleteItem, updateItem, getImageUrl } from '../api';
 import { useAuth } from '../context/AuthContext';
 import toast from 'react-hot-toast';
 import { FiMapPin, FiCalendar, FiUser, FiPhone, FiEdit2, FiTrash2, FiArrowLeft } from 'react-icons/fi';
@@ -75,7 +75,7 @@ export default function ItemDetail() {
           <div className="detail-image-col">
             <div className="detail-image-wrap">
               {item.image ? (
-                <img src={item.image} alt={item.title} className="detail-image" />
+                <img src={getImageUrl(item.image)} alt={item.title} className="detail-image" />
               ) : (
                 <div className="detail-image-placeholder">
                   <span>{icon}</span>

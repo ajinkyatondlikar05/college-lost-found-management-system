@@ -60,6 +60,7 @@ import {
   createAdminUser,
   updateAdminUser,
   deleteAdminUser,
+  getImageUrl,
 } from '../api';
 import './AdminDashboard.css';
 
@@ -1335,7 +1336,7 @@ export default function AdminDashboard() {
                                 <td>
                                   {item.image ? (
                                     <img
-                                      src={item.image}
+                                      src={getImageUrl(item.image)}
                                       alt={item.title}
                                       style={{ width: '40px', height: '40px', objectFit: 'cover', borderRadius: '4px' }}
                                     />
@@ -1610,7 +1611,7 @@ export default function AdminDashboard() {
                               <td>
                                 {c.image ? (
                                   <img
-                                    src={c.image}
+                                    src={getImageUrl(c.image)}
                                     alt="Proof"
                                     style={{ width: '38px', height: '38px', objectFit: 'cover', borderRadius: '4px' }}
                                   />
@@ -2346,7 +2347,7 @@ export default function AdminDashboard() {
               <div style={{ marginTop: '16px' }}>
                 <span className="detail-label" style={{ display: 'block', marginBottom: '8px' }}>Proof Image:</span>
                 <img
-                  src={selectedClaim.image}
+                  src={getImageUrl(selectedClaim.image)}
                   alt="Proof"
                   style={{ maxWidth: '100%', maxHeight: '200px', borderRadius: '8px', objectFit: 'contain', border: '1px solid #ddd' }}
                 />
@@ -2509,7 +2510,7 @@ export default function AdminDashboard() {
               <div style={{ marginTop: '12px' }}>
                 <span className="detail-label" style={{ display: 'block', marginBottom: '6px' }}>Image:</span>
                 <img
-                  src={viewDetailsItem.image}
+                  src={getImageUrl(viewDetailsItem.image)}
                   alt={viewDetailsItem.title}
                   style={{ maxWidth: '100%', maxHeight: '220px', borderRadius: '6px', objectFit: 'contain' }}
                 />

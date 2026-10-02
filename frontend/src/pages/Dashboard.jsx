@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { getAllItems, createItem, createClaim, sendReportOtp } from '../api';
+import { getAllItems, createItem, createClaim, sendReportOtp, getImageUrl } from '../api';
 import toast from 'react-hot-toast';
 import {
   FiSearch,
@@ -705,7 +705,7 @@ export default function Dashboard() {
                       <div className="ud-card-image-wrap">
                         {item.image ? (
                           <img
-                            src={item.image}
+                            src={getImageUrl(item.image)}
                             alt={item.title}
                             className="ud-card-image"
                             loading="lazy"
@@ -842,7 +842,7 @@ export default function Dashboard() {
               <div className="ud-details-image-col">
                 {selectedItem.image ? (
                   <img
-                    src={selectedItem.image}
+                    src={getImageUrl(selectedItem.image)}
                     alt={selectedItem.title}
                     className="ud-details-image"
                   />

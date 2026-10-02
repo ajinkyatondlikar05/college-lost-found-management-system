@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
 import { FiMapPin, FiCalendar, FiUser } from 'react-icons/fi';
+import { getImageUrl } from '../api';
 import './ItemCard.css';
 
 const categoryIcons = {
@@ -23,7 +24,7 @@ export default function ItemCard({ item }) {
     <Link to={`/items/${item._id}`} className="item-card">
       <div className="item-card-image">
         {item.image ? (
-          <img src={item.image} alt={item.title} />
+          <img src={getImageUrl(item.image)} alt={item.title} />
         ) : (
           <div className="item-card-placeholder">
             <span>{icon}</span>

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { getMyReports, deleteItem } from '../api';
+import { getMyReports, deleteItem, getImageUrl } from '../api';
 import { useAuth } from '../context/AuthContext';
 import toast from 'react-hot-toast';
 import {
@@ -466,7 +466,7 @@ export default function MyReports() {
                     <div className="item-thumbnail-wrap">
                       {item.image ? (
                         <img
-                          src={item.image}
+                          src={getImageUrl(item.image)}
                           alt={item.title}
                           className="item-thumbnail-img"
                           onError={(e) => {
@@ -652,7 +652,7 @@ export default function MyReports() {
                     <div className="modal-image-wrap">
                       {selectedItem.image ? (
                         <img
-                          src={selectedItem.image}
+                          src={getImageUrl(selectedItem.image)}
                           alt={selectedItem.title}
                           className="modal-item-img"
                         />
