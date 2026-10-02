@@ -1,6 +1,8 @@
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
+const os = require('os');
+const fs = require('fs');
 const { register, metricsMiddleware } = require('./utils/metrics');
 
 const app = express();
@@ -11,7 +13,20 @@ app.use(metricsMiddleware);
 // Middleware
 app.use(cors());
 app.use(express.json());
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
+// Uploads directory detection (supports Vercel ephemeral /tmp and local persistent directory)
+const isVercel = Boolean(process.env.VERCEL || process.env.NOW_REGION);
+const uploadsDir = isVercel
+  ? path.join(os.tmpdir(), 'uploads')
+  : path.join(__dirname, 'uploads');
+
+// Safe static file serving for uploads: avoids crashes if directory does not exist
+app.use('/uploads', (req, res, next) => {
+  if (fs.existsSync(uploadsDir)) {
+    return express.static(uploadsDir)(req, res, next);
+  }
+  next();
+});
 
 const connectDB = require('./utils/connectDB');
 
