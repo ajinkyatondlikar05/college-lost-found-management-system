@@ -1,0 +1,13 @@
+{
+  "name": "college-lost-and-found-system",
+  "version": "1.0.0",
+  "description": "College Lost & Found Management System - Full Stack Application",
+  "private": true,
+  "scripts": {
+    "test": "npm --prefix backend test && npm --prefix frontend test",
+    "test:backend": "npm --prefix backend test",
+    "test:frontend": "npm --prefix frontend test",
+    "build": "npm --prefix frontend run build",
+    "build:frontend": "npm --prefix frontend run build"
+  }
+}

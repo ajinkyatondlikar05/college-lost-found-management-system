@@ -1,0 +1,892 @@
+/* ========================================================
+   VINTAGE ANIMATED LAMP AUTHENTICATION
+   Original Lamp Design & Physics Engine
+   Themes: Warm Amber Gold, Cyberpunk Cyan, Electric Violet, Lamp OFF
+======================================================== */
+
+:root {
+  /* Default Warm Amber Gold */
+  --lamp-primary: #f59e0b;
+  --lamp-secondary: #fbbf24;
+  --lamp-glow: rgba(245, 158, 11, 0.45);
+  --lamp-glow-soft: rgba(245, 158, 11, 0.18);
+  --lamp-beam: rgba(251, 191, 36, 0.22);
+  --lamp-beam-end: rgba(245, 158, 11, 0.02);
+  --lamp-bulb: #fffbeb;
+  --lamp-filament: #fef08a;
+  --lamp-desk-light: rgba(245, 158, 11, 0.16);
+  --lamp-card-border: rgba(251, 191, 36, 0.35);
+  --lamp-card-glow: 0 0 35px rgba(245, 158, 11, 0.2);
+}
+
+/* Theme 1: Cyberpunk Cyan */
+.lamp-theme-cyber {
+  --lamp-primary: #06b6d4;
+  --lamp-secondary: #22d3ee;
+  --lamp-glow: rgba(6, 182, 212, 0.45);
+  --lamp-glow-soft: rgba(6, 182, 212, 0.18);
+  --lamp-beam: rgba(34, 211, 238, 0.22);
+  --lamp-beam-end: rgba(6, 182, 212, 0.02);
+  --lamp-bulb: #ecfeff;
+  --lamp-filament: #a5f3fc;
+  --lamp-desk-light: rgba(6, 182, 212, 0.16);
+  --lamp-card-border: rgba(34, 211, 238, 0.35);
+  --lamp-card-glow: 0 0 35px rgba(6, 182, 212, 0.2);
+}
+
+/* Theme 2: Electric Violet */
+.lamp-theme-violet {
+  --lamp-primary: #a855f7;
+  --lamp-secondary: #c084fc;
+  --lamp-glow: rgba(168, 85, 247, 0.45);
+  --lamp-glow-soft: rgba(168, 85, 247, 0.18);
+  --lamp-beam: rgba(192, 132, 252, 0.22);
+  --lamp-beam-end: rgba(168, 85, 247, 0.02);
+  --lamp-bulb: #faf5ff;
+  --lamp-filament: #e9d5ff;
+  --lamp-desk-light: rgba(168, 85, 247, 0.16);
+  --lamp-card-border: rgba(192, 132, 252, 0.35);
+  --lamp-card-glow: 0 0 35px rgba(168, 85, 247, 0.2);
+}
+
+/* Theme 3: Lamp OFF */
+.lamp-theme-off {
+  --lamp-primary: #475569;
+  --lamp-secondary: #64748b;
+  --lamp-glow: transparent;
+  --lamp-glow-soft: transparent;
+  --lamp-beam: transparent;
+  --lamp-beam-end: transparent;
+  --lamp-bulb: #1e293b;
+  --lamp-filament: #334155;
+  --lamp-desk-light: transparent;
+  --lamp-card-border: rgba(100, 116, 139, 0.2);
+  --lamp-card-glow: none;
+}
+
+/* ========================================================
+   PAGE CONTAINER & NIGHT ATMOSPHERE
+======================================================== */
+.lamp-page-container {
+  min-height: 100vh;
+  width: 100%;
+  position: relative;
+  background-color: #000000;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  color: #f8fafc;
+  box-sizing: border-box;
+  user-select: none;
+  transition: background-color 0.8s ease;
+}
+
+/* Room Wall & Night Sky */
+.lamp-room-bg {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: #000000;
+  z-index: 0;
+  transition: background 0.8s ease, opacity 0.8s ease;
+}
+
+/* Atmospheric room glow strictly when lamp is ON */
+.lamp-theme-warm .lamp-room-bg {
+  background: radial-gradient(ellipse at 32% 48%, rgba(245, 158, 11, 0.16) 0%, rgba(28, 20, 10, 0.45) 40%, #030407 80%);
+}
+
+.lamp-theme-cyber .lamp-room-bg {
+  background: radial-gradient(ellipse at 32% 48%, rgba(6, 182, 212, 0.18) 0%, rgba(8, 28, 38, 0.48) 40%, #02060b 80%);
+}
+
+.lamp-theme-violet .lamp-room-bg {
+  background: radial-gradient(ellipse at 32% 48%, rgba(168, 85, 247, 0.18) 0%, rgba(28, 12, 45, 0.48) 40%, #04020a 80%);
+}
+
+.lamp-theme-off .lamp-room-bg {
+  background: #000000;
+}
+
+/* Room Desk lighting layer */
+.lamp-desk-lighting {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 45vh;
+  background: radial-gradient(ellipse at 30% 100%, var(--lamp-desk-light) 0%, transparent 65%);
+  pointer-events: none;
+  z-index: 1;
+  transition: opacity 0.6s ease;
+}
+
+.lamp-theme-off .lamp-desk-lighting {
+  opacity: 0;
+}
+
+/* Fireflies Canvas */
+.lamp-fireflies-canvas {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2;
+  transition: opacity 0.6s ease;
+}
+
+.lamp-theme-off .lamp-fireflies-canvas {
+  opacity: 0;
+}
+
+/* Stars in the Night Sky */
+.lamp-stars-wrap {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.7;
+  transition: opacity 0.6s ease;
+}
+
+.lamp-theme-off .lamp-stars-wrap {
+  opacity: 0;
+}
+
+.lamp-star {
+  position: absolute;
+  background: #ffffff;
+  border-radius: 50%;
+  animation: starTwinkle var(--duration, 3s) infinite ease-in-out;
+}
+
+@keyframes starTwinkle {
+  0%, 100% { opacity: 0.2; transform: scale(0.8); }
+  50% { opacity: 0.9; transform: scale(1.2); }
+}
+
+/* Subtle 4-Pane Architectural Window Silhouette */
+.lamp-window-silhouette {
+  position: absolute;
+  top: 4%;
+  left: 4%;
+  width: 95px;
+  height: 135px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  gap: 6px;
+  padding: 6px;
+  background: rgba(12, 17, 26, 0.7);
+  border: 2px solid rgba(255, 255, 255, 0.05);
+  border-radius: 4px;
+  pointer-events: none;
+  z-index: 1;
+  opacity: 0.22;
+  transition: opacity 0.8s ease;
+}
+
+.lamp-theme-off .lamp-window-silhouette {
+  opacity: 0.08;
+}
+
+.lamp-window-pane {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.07) 0%, rgba(255, 255, 255, 0.01) 100%);
+  border-radius: 2px;
+}
+
+/* Top Floating Bar: Back to Portal button + Theme Indicator */
+.lamp-topbar {
+  position: absolute;
+  top: 1.5rem;
+  left: 1.5rem;
+  right: 1.5rem;
+  max-width: 1200px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  z-index: 30;
+}
+
+.lamp-back-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.55rem 1.25rem;
+  background: rgba(15, 23, 42, 0.75);
+  backdrop-filter: blur(12px);
+  color: #f1f5f9;
+  font-size: 0.875rem;
+  font-weight: 600;
+  border-radius: 9999px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+  cursor: pointer;
+  transition: all 0.25s ease;
+  text-decoration: none;
+}
+
+.lamp-back-btn:hover {
+  background: rgba(30, 41, 59, 0.9);
+  border-color: var(--lamp-primary);
+  color: var(--lamp-secondary);
+  transform: translateX(-3px);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4), 0 0 15px var(--lamp-glow-soft);
+}
+
+.lamp-theme-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.45rem 1rem;
+  background: rgba(15, 23, 42, 0.65);
+  backdrop-filter: blur(10px);
+  border-radius: 9999px;
+  border: 1px solid var(--lamp-card-border);
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--lamp-secondary);
+  box-shadow: var(--lamp-card-glow);
+  transition: all 0.4s ease;
+}
+
+.lamp-theme-off .lamp-theme-tag {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.lamp-theme-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: var(--lamp-primary);
+  box-shadow: 0 0 10px var(--lamp-primary);
+  transition: all 0.4s ease;
+}
+
+/* ========================================================
+   MAIN CONTENT WRAPPER: TWO-COLUMN STAGE
+======================================================== */
+.lamp-content-stage {
+  position: relative;
+  z-index: 10;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  max-width: 1260px;
+  min-height: calc(100vh - 100px);
+  padding: 1.5rem 3rem;
+  box-sizing: border-box;
+}
+
+/* Left Column: Floor Dome Lamp Stage */
+.lamp-stage-left {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  min-height: 530px;
+}
+
+/* Right Column: Authentication Card */
+.lamp-stage-right {
+  flex: 1.15;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  padding-left: 2.5rem;
+}
+
+/* ========================================================
+   STANDING FLOOR/DESK DOME LAMP APPARATUS
+======================================================== */
+.lamp-apparatus {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 300px;
+  flex-shrink: 0;
+  transition: transform 0.15s ease-out;
+}
+
+/* SVG Lamp Body */
+.lamp-svg {
+  width: 100%;
+  height: auto;
+  filter: drop-shadow(0 20px 35px rgba(0, 0, 0, 0.7));
+  position: relative;
+  z-index: 5;
+}
+
+/* Volumetric Light Beam (Projected Downward from Dome Shade) */
+.lamp-volumetric-beam {
+  position: absolute;
+  top: 136px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 480px;
+  height: 420px;
+  background: linear-gradient(
+    180deg,
+    var(--lamp-beam) 0%,
+    var(--lamp-beam-end) 85%,
+    transparent 100%
+  );
+  clip-path: polygon(25% 0%, 75% 0%, 100% 100%, 0% 100%);
+  pointer-events: none;
+  opacity: 0.95;
+  filter: blur(10px);
+  z-index: 3;
+  transition: opacity 0.6s ease, background 0.6s ease;
+}
+
+.lamp-theme-off .lamp-volumetric-beam {
+  opacity: 0;
+}
+
+/* Floor Pool of Light around Base */
+.lamp-floor-pool {
+  position: absolute;
+  bottom: 0px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 440px;
+  height: 120px;
+  background: radial-gradient(ellipse at 50% 50%, var(--lamp-glow) 0%, var(--lamp-glow-soft) 45%, transparent 70%);
+  border-radius: 50%;
+  pointer-events: none;
+  filter: blur(14px);
+  opacity: 0.85;
+  transition: opacity 0.6s ease;
+  z-index: 2;
+}
+
+.lamp-theme-off .lamp-floor-pool {
+  opacity: 0;
+}
+
+/* Interactive Pull Cord Container (Hangs from inside right underside of dome) */
+.lamp-pull-assembly {
+  position: absolute;
+  top: 136px;
+  left: 212px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  cursor: grab;
+  z-index: 25;
+  touch-action: none;
+}
+
+.lamp-pull-assembly.dragging {
+  cursor: grabbing;
+}
+
+/* Pull Cord Line */
+.lamp-pull-string {
+  width: 2px;
+  background: linear-gradient(180deg, #94a3b8 0%, #cbd5e1 100%);
+  box-shadow: 0 0 3px rgba(0, 0, 0, 0.6);
+  transform-origin: top center;
+}
+
+/* Pull Cord Handle / Brass Capsule */
+.lamp-pull-handle {
+  width: 14px;
+  height: 22px;
+  border-radius: 9999px;
+  background: radial-gradient(circle at 35% 30%, #fef08a 0%, #d97706 70%, #78350f 100%);
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.6), 0 0 10px var(--lamp-glow);
+  cursor: grab;
+  outline: none;
+  transition: transform 0.15s ease, box-shadow 0.3s ease;
+}
+
+.lamp-pull-assembly:hover .lamp-pull-handle {
+  transform: scale(1.15);
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.7), 0 0 16px var(--lamp-primary);
+}
+
+.lamp-pull-hint {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  margin-top: 8px;
+  white-space: nowrap;
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--lamp-secondary);
+  background: rgba(15, 23, 42, 0.85);
+  border: 1px solid var(--lamp-card-border);
+  padding: 0.25rem 0.6rem;
+  border-radius: 9999px;
+  pointer-events: none;
+  opacity: 0.85;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  animation: pulseHint 2.5s infinite ease-in-out;
+}
+
+@keyframes pulseHint {
+  0%, 100% { opacity: 0.5; transform: translateX(-50%) translateY(0); }
+  50% { opacity: 1; transform: translateX(-50%) translateY(3px); }
+}
+
+/* ========================================================
+   GLASSMORPHISM AUTHENTICATION CARD
+======================================================== */
+.lamp-glass-card {
+  width: 100%;
+  max-width: 480px;
+  background: rgba(15, 23, 42, 0.72);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border-radius: 28px;
+  border: 1px solid var(--lamp-card-border);
+  box-shadow: 
+    0 24px 60px rgba(0, 0, 0, 0.65),
+    0 0 45px var(--lamp-glow-soft);
+  padding: 2.5rem 2.25rem 2.25rem;
+  position: relative;
+  z-index: 15;
+  box-sizing: border-box;
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transform: translateX(0) scale(1);
+  filter: blur(0px);
+  transition: opacity 0.75s cubic-bezier(0.16, 1, 0.3, 1),
+              transform 0.75s cubic-bezier(0.16, 1, 0.3, 1),
+              filter 0.75s cubic-bezier(0.16, 1, 0.3, 1),
+              box-shadow 0.4s ease,
+              border-color 0.4s ease;
+  transform-style: preserve-3d;
+}
+
+/* OFF State: Login card is completely invisible and non-interactive */
+.lamp-theme-off .lamp-glass-card {
+  opacity: 0 !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+  transform: translateX(60px) scale(0.95) !important;
+  filter: blur(10px) !important;
+  transition: opacity 0.6s cubic-bezier(0.16, 1, 0.3, 1),
+              transform 0.6s cubic-bezier(0.16, 1, 0.3, 1),
+              filter 0.6s ease;
+}
+
+.lamp-glass-card.shake {
+  animation: cardShake 0.45s ease-in-out;
+}
+
+@keyframes cardShake {
+  0%, 100% { transform: translateX(0); }
+  20%, 60% { transform: translateX(-8px); }
+  40%, 80% { transform: translateX(8px); }
+}
+
+/* Card Specular Reflection Line */
+.lamp-card-reflection {
+  position: absolute;
+  top: 0;
+  left: 20%;
+  right: 20%;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--lamp-secondary), transparent);
+  opacity: 0.8;
+  pointer-events: none;
+  transition: background 0.4s ease;
+}
+
+/* Card Header with EXACT Original Portal Icon */
+.lamp-card-header {
+  text-align: center;
+  margin-bottom: 1.75rem;
+}
+
+.lamp-icon-badge {
+  width: 76px;
+  height: 76px;
+  border-radius: 50%;
+  background: #ffffff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 1.15rem;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35), 0 0 20px var(--lamp-glow-soft);
+  border: 2px solid var(--lamp-card-border);
+  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.3s ease;
+}
+
+.lamp-icon-badge:hover {
+  transform: scale(1.08) rotate(3deg);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.45), 0 0 25px var(--lamp-glow);
+}
+
+.lamp-card-title {
+  color: #ffffff;
+  font-size: 2.1rem;
+  font-weight: 800;
+  letter-spacing: -0.5px;
+  margin: 0 0 0.4rem 0;
+  line-height: 1.2;
+}
+
+.lamp-card-subtitle {
+  color: #94a3b8;
+  font-size: 0.95rem;
+  font-weight: 400;
+  margin: 0;
+  line-height: 1.5;
+}
+
+/* Animated Tab Slider (User Login & Sign Up) */
+.lamp-tabs-wrap {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  background: rgba(30, 41, 59, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 9999px;
+  padding: 4px;
+  margin-bottom: 1.75rem;
+}
+
+.lamp-tab-btn {
+  position: relative;
+  z-index: 2;
+  background: none;
+  border: none;
+  color: #94a3b8;
+  font-size: 0.9rem;
+  font-weight: 600;
+  font-family: inherit;
+  padding: 0.6rem 1rem;
+  cursor: pointer;
+  transition: color 0.25s ease;
+  border-radius: 9999px;
+}
+
+.lamp-tab-btn.active {
+  color: #ffffff;
+}
+
+.lamp-tab-slider {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  left: 4px;
+  width: calc(50% - 4px);
+  background: linear-gradient(135deg, var(--lamp-primary) 0%, rgba(255, 255, 255, 0.15) 100%);
+  border-radius: 9999px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3), 0 0 15px var(--lamp-glow);
+  transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1), background 0.4s ease;
+  z-index: 1;
+}
+
+.lamp-tab-slider.slide-right {
+  transform: translateX(100%);
+}
+
+/* Form Groups & Inputs */
+.lamp-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1.15rem;
+}
+
+.lamp-grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.85rem;
+}
+
+.lamp-input-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.lamp-input-label {
+  color: #cbd5e1;
+  font-size: 0.85rem;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  margin-left: 0.25rem;
+}
+
+.lamp-input-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+
+.lamp-input-icon {
+  position: absolute;
+  left: 1.15rem;
+  color: #64748b;
+  font-size: 1.1rem;
+  pointer-events: none;
+  z-index: 2;
+  transition: color 0.2s ease, transform 0.2s ease;
+}
+
+.lamp-input-wrap:focus-within .lamp-input-icon {
+  color: var(--lamp-secondary);
+  transform: scale(1.1);
+}
+
+.lamp-input-field {
+  width: 100%;
+  background: rgba(30, 41, 59, 0.7);
+  color: #f8fafc;
+  border: 1.5px solid rgba(255, 255, 255, 0.12);
+  border-radius: 9999px;
+  padding: 0.82rem 1.25rem 0.82rem 2.85rem;
+  font-size: 0.95rem;
+  font-family: inherit;
+  font-weight: 500;
+  transition: all 0.25s ease;
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.3);
+  outline: none;
+  box-sizing: border-box;
+}
+
+.lamp-input-field.has-toggle {
+  padding-right: 3rem;
+}
+
+.lamp-input-field:focus {
+  background: rgba(30, 41, 59, 0.9);
+  border-color: var(--lamp-secondary);
+  box-shadow: 0 0 0 3px var(--lamp-glow-soft), inset 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.lamp-input-field::placeholder {
+  color: #64748b;
+}
+
+.lamp-eye-toggle {
+  position: absolute;
+  right: 1.15rem;
+  background: none;
+  border: none;
+  color: #94a3b8;
+  font-size: 1.1rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  transition: color 0.2s ease, transform 0.2s ease;
+  z-index: 2;
+}
+
+.lamp-eye-toggle:hover {
+  color: #ffffff;
+  transform: scale(1.15);
+}
+
+/* Password Strength Meter */
+.lamp-strength-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  margin-top: -0.25rem;
+  margin-bottom: 0.25rem;
+  padding: 0 0.5rem;
+}
+
+.lamp-strength-bars {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+  height: 4px;
+}
+
+.lamp-strength-bar {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 9999px;
+  height: 100%;
+  transition: background 0.3s ease;
+}
+
+.lamp-strength-bar.active-weak { background: #ef4444; }
+.lamp-strength-bar.active-fair { background: #f59e0b; }
+.lamp-strength-bar.active-good { background: #3b82f6; }
+.lamp-strength-bar.active-strong { background: #10b981; }
+
+.lamp-strength-text {
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-align: right;
+  color: #94a3b8;
+  text-transform: capitalize;
+}
+
+/* Submit Action Button */
+.lamp-submit-btn {
+  background: linear-gradient(135deg, var(--lamp-primary) 0%, rgba(255, 255, 255, 0.2) 100%);
+  color: #0b0f19;
+  border: none;
+  border-radius: 9999px;
+  padding: 0.95rem 2rem;
+  font-size: 1rem;
+  font-weight: 800;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.25s ease;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4), 0 0 25px var(--lamp-glow);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+  width: 100%;
+  letter-spacing: 0.3px;
+}
+
+.lamp-submit-btn:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.5), 0 0 35px var(--lamp-primary);
+  filter: brightness(1.1);
+}
+
+.lamp-submit-btn:active:not(:disabled) {
+  transform: translateY(0) scale(0.98);
+}
+
+.lamp-submit-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* Loading Spinner */
+.lamp-spinner {
+  width: 18px;
+  height: 18px;
+  border: 2px solid rgba(11, 15, 25, 0.3);
+  border-top-color: #0b0f19;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  display: inline-block;
+}
+
+/* Error Alert */
+.lamp-alert-error {
+  background: rgba(239, 68, 68, 0.15);
+  color: #fca5a5;
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  border-radius: 14px;
+  padding: 0.75rem 1rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  margin-bottom: 1.25rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* Footer Switcher */
+.lamp-card-footer {
+  text-align: center;
+  margin-top: 1.5rem;
+  color: #94a3b8;
+  font-size: 0.9rem;
+}
+
+.lamp-toggle-btn {
+  background: none;
+  border: none;
+  color: var(--lamp-secondary);
+  font-weight: 700;
+  text-decoration: underline;
+  cursor: pointer;
+  padding: 0;
+  margin-left: 0.35rem;
+  font-size: 0.9rem;
+  font-family: inherit;
+  transition: color 0.2s ease;
+}
+
+.lamp-toggle-btn:hover {
+  color: #ffffff;
+}
+
+/* ========================================================
+   RESPONSIVE DESIGN
+======================================================== */
+@media (max-width: 900px) {
+  .lamp-content-stage {
+    flex-direction: column;
+    gap: 2rem;
+    padding: 5rem 1rem 2rem;
+  }
+
+  .lamp-stage-left {
+    min-height: auto;
+  }
+
+  .lamp-stage-right {
+    padding-left: 0;
+    width: 100%;
+  }
+
+  .lamp-window-silhouette {
+    display: none;
+  }
+
+  .lamp-apparatus {
+    width: 240px;
+  }
+
+  .lamp-volumetric-beam {
+    top: 108px;
+    width: 380px;
+    height: 350px;
+  }
+
+  .lamp-pull-assembly {
+    top: 108px;
+    left: 170px;
+  }
+
+  .lamp-glass-card {
+    max-width: 440px;
+    padding: 2rem 1.5rem 1.75rem;
+  }
+
+  .lamp-card-title {
+    font-size: 1.8rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .lamp-grid-2 {
+    grid-template-columns: 1fr;
+    gap: 1rem;
+  }
+
+  .lamp-topbar {
+    top: 1rem;
+    left: 1rem;
+    right: 1rem;
+  }
+
+  .lamp-card-title {
+    font-size: 1.6rem;
+  }
+}
