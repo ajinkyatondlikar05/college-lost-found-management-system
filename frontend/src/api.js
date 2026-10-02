@@ -1,12 +1,15 @@
 import axios from 'axios';
 
-// Read Vite environment variable if provided, fallback to '/api' for local/Docker
-const rawApiUrl = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_API_URL)
+// In production builds (e.g. Vercel deployment), use relative '/api' so requests proxy same-origin.
+// In local development, respect VITE_API_URL if configured, falling back to '/api'.
+const isProd = typeof import.meta !== 'undefined' && import.meta.env && Boolean(import.meta.env.PROD);
+
+const rawApiUrl = (!isProd && typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_API_URL)
   ? import.meta.env.VITE_API_URL.trim()
   : '';
 
 const getBaseURL = () => {
-  if (!rawApiUrl) return '/api';
+  if (isProd || !rawApiUrl) return '/api';
   const trimmed = rawApiUrl.replace(/\/+$/, '');
   return trimmed.endsWith('/api') ? trimmed : `${trimmed}/api`;
 };
