@@ -75,7 +75,7 @@ docker compose ps
 echo.
 
 :: 8. Verify service endpoints
-echo [8/8] Verifying service endpoints...
+echo [8/8] Verifying service endpoints and monitoring infrastructure...
 echo.
 
 echo --- Verifying Backend Health (port 5000) ---
@@ -111,10 +111,45 @@ echo.
 echo [OK] Nginx API proxy verification passed (HTTP !PROXY_CODE!).
 echo.
 
+echo --- Verifying Prometheus Readiness (port 9090) ---
+for /f %%A in ('curl.exe -s -o nul -w "%%{http_code}" --max-time 10 http://localhost:9090/-/ready') do set "PROM_CODE=%%A"
+if not "!PROM_CODE!"=="200" (
+    echo [ERROR] Prometheus readiness check failed with HTTP status: !PROM_CODE!
+    exit /b 1
+)
+curl.exe -s -i http://localhost:9090/-/ready
+echo.
+echo [OK] Prometheus readiness check passed (HTTP !PROM_CODE!).
+echo.
+
+echo --- Verifying Grafana Health (port 3001) ---
+for /f %%A in ('curl.exe -s -o nul -w "%%{http_code}" --max-time 10 http://localhost:3001/api/health') do set "GRAFANA_CODE=%%A"
+if not "!GRAFANA_CODE!"=="200" (
+    echo [ERROR] Grafana health check failed with HTTP status: !GRAFANA_CODE!
+    exit /b 1
+)
+curl.exe -s -i http://localhost:3001/api/health
+echo.
+echo [OK] Grafana health check passed (HTTP !GRAFANA_CODE!).
+echo.
+
+echo --- Verifying Prometheus Target Status (backend:5000) ---
+for /f %%A in ('curl.exe -s http://localhost:9090/api/v1/targets ^| node -e "let d=''; process.stdin.on('data', c=>d+=c); process.stdin.on('end', ()=>{ const j=JSON.parse(d); const t=(j.data&&j.data.activeTargets)?j.data.activeTargets.find(x=>x.labels&&x.labels.job==='college-lost-found-backend'&&x.labels.instance==='backend:5000'):null; if(t&&t.health==='up'){ console.log('up'); process.exit(0); } else { console.log(t?t.health:'missing'); process.exit(1); } });"') do set "TARGET_STATUS=%%A"
+
+if not "!TARGET_STATUS!"=="up" (
+    echo [ERROR] Prometheus backend target is not UP! Current status: !TARGET_STATUS!
+    exit /b 1
+)
+echo [OK] Prometheus target backend:5000 (job: college-lost-found-backend) is UP.
+echo.
+
 echo =================================================================
 echo   SUCCESS: Deployment completed and all services verified!
-echo   - Frontend: http://localhost:3000
-echo   - Backend:  http://localhost:5000
-echo   - Proxy:    http://localhost:3000/api
+echo   - Frontend:   http://localhost:3000
+echo   - Backend:    http://localhost:5000
+echo   - Proxy:      http://localhost:3000/api
+echo   - Prometheus: http://localhost:9090
+echo   - Grafana:    http://localhost:3001
 echo =================================================================
 exit /b 0
+
