@@ -4,6 +4,7 @@ const dotenv = require('dotenv');
 dotenv.config();
 
 const app = require('./app');
+const connectDB = require('./utils/connectDB');
 
 // Connect to MongoDB and start server
 const PORT = process.env.PORT || 5000;
@@ -14,27 +15,13 @@ if (!MONGO_URI) {
   process.exit(1);
 }
 
-// Safe URI for logging — strips credentials before printing
-const safeUri = MONGO_URI.replace(/:\/\/[^@]+@/, '://***:***@');
-
-const seedAdmin = require('./utils/seedAdmin');
-const seedCategories = require('./utils/seedCategories');
-const { verifyEmailTransporter } = require('./utils/email');
-
-mongoose
-  .connect(MONGO_URI)
-  .then(async () => {
-    console.log(`MongoDB connected successfully → ${safeUri}`);
-    await seedAdmin();
-    await seedCategories();
-    await verifyEmailTransporter();
+connectDB()
+  .then(() => {
     app.listen(PORT, () => {
       console.log(`Server running on port ${PORT}`);
     });
   })
-  .catch((err) => {
-    // Only log the message, never the full error (which can contain the URI)
-    console.error(`MongoDB connection failed: ${err.message}`);
+  .catch(() => {
     process.exit(1);
   });
 

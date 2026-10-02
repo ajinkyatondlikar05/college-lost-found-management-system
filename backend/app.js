@@ -13,6 +13,8 @@ app.use(cors());
 app.use(express.json());
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
+const connectDB = require('./utils/connectDB');
+
 // Prometheus Metrics Endpoint
 app.get('/metrics', async (req, res) => {
   try {
@@ -20,6 +22,20 @@ app.get('/metrics', async (req, res) => {
     res.end(await register.metrics());
   } catch (error) {
     res.status(500).end(error.message);
+  }
+});
+
+// Database connection middleware for requests
+app.use(async (req, res, next) => {
+  if (process.env.NODE_ENV === 'test' || !process.env.MONGO_URI) {
+    return next();
+  }
+  try {
+    await connectDB();
+    next();
+  } catch (error) {
+    console.error('Database connection error in request lifecycle:', error.message);
+    res.status(500).json({ error: 'Database connection failed' });
   }
 });
 
