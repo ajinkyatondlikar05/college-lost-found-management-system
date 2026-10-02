@@ -7,6 +7,7 @@
     "node": "24.x"
   },
   "scripts": {
+    "build": "echo Backend build ready",
     "start": "node server.js",
     "dev": "node ./node_modules/nodemon/bin/nodemon.js server.js",
     "test": "node --test tests/**/*.test.js"
