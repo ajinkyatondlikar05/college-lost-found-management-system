@@ -21,6 +21,7 @@ import {
   FiShield,
   FiHelpCircle,
   FiInbox,
+  FiFilter,
 } from 'react-icons/fi';
 import { MdFindInPage } from 'react-icons/md';
 import './Dashboard.css';
@@ -46,6 +47,9 @@ export default function Dashboard() {
   // Navigation & User menu
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const userMenuRef = useRef(null);
+
+  // Mobile filters drawer
+  const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
 
   // Tab switcher: 'lost' or 'found'
   const [activeTab, setActiveTab] = useState('lost');
@@ -599,12 +603,31 @@ export default function Dashboard() {
             4. FILTER SIDEBAR + 5. ITEM CARD GRID
             ======================================================== */}
         <div className="ud-browser-layout">
-          {/* FILTER SIDEBAR (White Rounded Panel) */}
-          <aside className="ud-filter-sidebar">
+          {/* Mobile Filter Backdrop */}
+          {mobileFiltersOpen && (
+            <div
+              className="ud-filter-backdrop"
+              onClick={() => setMobileFiltersOpen(false)}
+              aria-label="Close filter drawer"
+            />
+          )}
+
+          {/* FILTER SIDEBAR (White Rounded Panel / Mobile Drawer) */}
+          <aside className={`ud-filter-sidebar ${mobileFiltersOpen ? 'mobile-drawer-open' : ''}`}>
             <div className="ud-filter-header">
-              <h2 className="ud-filter-title">Filters</h2>
-              <button className="ud-filter-clear-btn" onClick={handleClearFilters}>
-                Clear
+              <div className="ud-filter-header-left">
+                <h2 className="ud-filter-title">Filters</h2>
+                <button className="ud-filter-clear-btn" onClick={handleClearFilters}>
+                  Clear
+                </button>
+              </div>
+              <button
+                type="button"
+                className="ud-filter-close-btn"
+                onClick={() => setMobileFiltersOpen(false)}
+                aria-label="Close filters"
+              >
+                <FiX />
               </button>
             </div>
 
@@ -676,9 +699,22 @@ export default function Dashboard() {
           {/* ITEM CARD GRID */}
           <main className="ud-items-content">
             <div className="ud-items-header-bar">
-              <span className="ud-items-count-text">
-                Showing <strong>{items.length}</strong> {activeTab} items
-              </span>
+              <div className="ud-items-header-left">
+                <button
+                  type="button"
+                  className="ud-mobile-filter-trigger"
+                  onClick={() => setMobileFiltersOpen(true)}
+                  aria-label="Open Filters"
+                >
+                  <FiFilter className="ud-filter-icon" /> Filters
+                  {(selectedCategory !== 'All Categories' || locationFilter || fromDate || toDate) && (
+                    <span className="ud-filter-active-dot" />
+                  )}
+                </button>
+                <span className="ud-items-count-text">
+                  Showing <strong>{items.length}</strong> {activeTab} items
+                </span>
+              </div>
               {(selectedCategory !== 'All Categories' || locationFilter || fromDate || toDate || searchQuery) && (
                 <span className="ud-filtered-indicator">Filtered results</span>
               )}
