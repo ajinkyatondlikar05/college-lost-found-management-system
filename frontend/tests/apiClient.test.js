@@ -46,8 +46,13 @@ describe('Frontend API Client Configuration & Endpoints', () => {
   it('should export getImageUrl and resolve image URLs properly', () => {
     assert.strictEqual(typeof getImageUrl, 'function');
     assert.strictEqual(getImageUrl(''), '');
+    assert.strictEqual(getImageUrl(null), '');
+    assert.strictEqual(getImageUrl(undefined), '');
     assert.strictEqual(getImageUrl('/uploads/sample.png'), '/uploads/sample.png');
+    assert.strictEqual(getImageUrl('uploads/sample.png'), '/uploads/sample.png');
+    assert.strictEqual(getImageUrl('uploads\\sample.png'), '/uploads/sample.png');
     assert.strictEqual(getImageUrl('https://example.com/photo.jpg'), 'https://example.com/photo.jpg');
+    assert.strictEqual(getImageUrl('http://example.com/photo.jpg'), 'http://example.com/photo.jpg');
   });
 
   it('should export all authentication API methods', () => {

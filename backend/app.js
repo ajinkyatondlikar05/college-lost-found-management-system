@@ -20,12 +20,18 @@ const uploadsDir = isVercel
   ? path.join(os.tmpdir(), 'uploads')
   : path.join(__dirname, 'uploads');
 
-// Safe static file serving for uploads: avoids crashes if directory does not exist
-app.use('/uploads', (req, res, next) => {
-  if (fs.existsSync(uploadsDir)) {
-    return express.static(uploadsDir)(req, res, next);
+if (!fs.existsSync(uploadsDir)) {
+  try {
+    fs.mkdirSync(uploadsDir, { recursive: true });
+  } catch (err) {
+    // Ignore read-only filesystem errors
   }
-  next();
+}
+
+// Static file serving for uploads with fallback 404 handler
+app.use('/uploads', express.static(uploadsDir));
+app.use('/uploads', (req, res) => {
+  res.status(404).json({ message: 'Image not found' });
 });
 
 const connectDB = require('./utils/connectDB');

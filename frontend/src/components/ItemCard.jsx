@@ -24,12 +24,23 @@ export default function ItemCard({ item }) {
     <Link to={`/items/${item._id}`} className="item-card">
       <div className="item-card-image">
         {item.image ? (
-          <img src={getImageUrl(item.image)} alt={item.title} />
-        ) : (
-          <div className="item-card-placeholder">
-            <span>{icon}</span>
-          </div>
-        )}
+          <img
+            src={getImageUrl(item.image)}
+            alt={item.title}
+            onError={(e) => {
+              e.currentTarget.style.display = 'none';
+              if (e.currentTarget.nextElementSibling) {
+                e.currentTarget.nextElementSibling.style.display = 'flex';
+              }
+            }}
+          />
+        ) : null}
+        <div
+          className="item-card-placeholder"
+          style={{ display: item.image ? 'none' : 'flex' }}
+        >
+          <span>{icon}</span>
+        </div>
         <span className={`item-type-badge ${isLost ? 'lost' : 'found'}`}>
           {isLost ? '🔴 Lost' : '🟢 Found'}
         </span>

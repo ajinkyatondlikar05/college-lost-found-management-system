@@ -20,24 +20,31 @@ const API = axios.create({
 
 /**
  * Converts a stored image path into the appropriate absolute or relative URL.
- * When VITE_API_URL is configured, resolves relative '/uploads/...' against the backend origin.
- * When VITE_API_URL is not configured, preserves relative '/uploads/...' for local/Docker proxy.
+ * - If already a full URL (http://, https://, or data:), returns it directly.
+ * - Normalizes Windows backslashes and ensures a clean leading slash.
+ * - When an API base URL is configured, resolves relative '/uploads/...' against the backend origin.
+ * - When not configured, preserves relative '/uploads/...' for Vite proxy, Docker Nginx proxy, and Vercel rewrites.
  */
 export const getImageUrl = (imagePath) => {
-  if (!imagePath) return '';
-  if (/^https?:\/\//i.test(imagePath)) return imagePath;
+  if (!imagePath || typeof imagePath !== 'string') return '';
+  if (/^(?:https?:|\/\/|data:)/i.test(imagePath.trim())) return imagePath.trim();
+
+  const normalized = imagePath.trim().replace(/\\/g, '/');
+  const cleanPath = normalized.startsWith('/') ? normalized : `/${normalized}`;
 
   const envUrl = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_API_URL)
     ? import.meta.env.VITE_API_URL.trim()
     : '';
 
-  if (!envUrl) {
-    return imagePath.startsWith('/') ? imagePath : `/${imagePath}`;
+  const apiBase = API?.defaults?.baseURL;
+  const rawUrl = envUrl || (/^https?:\/\//i.test(apiBase || '') ? apiBase : '');
+
+  if (rawUrl) {
+    const backendOrigin = rawUrl.replace(/\/+$/, '').replace(/\/api$/, '');
+    return `${backendOrigin}${cleanPath}`;
   }
 
-  const backendOrigin = envUrl.replace(/\/+$/, '').replace(/\/api$/, '');
-  const cleanPath = imagePath.startsWith('/') ? imagePath : `/${imagePath}`;
-  return `${backendOrigin}${cleanPath}`;
+  return cleanPath;
 };
 
 // Attach JWT token to every request

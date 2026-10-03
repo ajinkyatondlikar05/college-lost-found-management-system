@@ -470,8 +470,10 @@ export default function MyReports() {
                           alt={item.title}
                           className="item-thumbnail-img"
                           onError={(e) => {
-                            e.target.style.display = 'none';
-                            e.target.nextSibling.style.display = 'flex';
+                            e.currentTarget.style.display = 'none';
+                            if (e.currentTarget.nextElementSibling) {
+                              e.currentTarget.nextElementSibling.style.display = 'flex';
+                            }
                           }}
                         />
                       ) : null}
@@ -655,12 +657,20 @@ export default function MyReports() {
                           src={getImageUrl(selectedItem.image)}
                           alt={selectedItem.title}
                           className="modal-item-img"
+                          onError={(e) => {
+                            e.currentTarget.style.display = 'none';
+                            if (e.currentTarget.nextElementSibling) {
+                              e.currentTarget.nextElementSibling.style.display = 'flex';
+                            }
+                          }}
                         />
-                      ) : (
-                        <div className="modal-image-placeholder">
-                          <span>{categoryIcons[selectedItem.category] || '📦'}</span>
-                        </div>
-                      )}
+                      ) : null}
+                      <div
+                        className="modal-image-placeholder"
+                        style={{ display: selectedItem.image ? 'none' : 'flex' }}
+                      >
+                        <span>{categoryIcons[selectedItem.category] || '📦'}</span>
+                      </div>
                     </div>
 
                     <div className="modal-status-box">

@@ -20,8 +20,10 @@ export default function ItemDetail() {
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState(false);
   const [statusLoading, setStatusLoading] = useState(false);
+  const [imageError, setImageError] = useState(false);
 
   useEffect(() => {
+    setImageError(false);
     getItemById(id)
       .then((res) => setItem(res.data))
       .catch(() => navigate('/items'))
@@ -74,8 +76,13 @@ export default function ItemDetail() {
           {/* Image */}
           <div className="detail-image-col">
             <div className="detail-image-wrap">
-              {item.image ? (
-                <img src={getImageUrl(item.image)} alt={item.title} className="detail-image" />
+              {item.image && !imageError ? (
+                <img
+                  src={getImageUrl(item.image)}
+                  alt={item.title}
+                  className="detail-image"
+                  onError={() => setImageError(true)}
+                />
               ) : (
                 <div className="detail-image-placeholder">
                   <span>{icon}</span>

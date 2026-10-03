@@ -1335,11 +1335,20 @@ export default function AdminDashboard() {
                               {currentTab === 'found-items' && (
                                 <td>
                                   {item.image ? (
-                                    <img
-                                      src={getImageUrl(item.image)}
-                                      alt={item.title}
-                                      style={{ width: '40px', height: '40px', objectFit: 'cover', borderRadius: '4px' }}
-                                    />
+                                    <>
+                                      <img
+                                        src={getImageUrl(item.image)}
+                                        alt={item.title}
+                                        style={{ width: '40px', height: '40px', objectFit: 'cover', borderRadius: '4px' }}
+                                        onError={(e) => {
+                                          e.currentTarget.style.display = 'none';
+                                          if (e.currentTarget.nextElementSibling) {
+                                            e.currentTarget.nextElementSibling.style.display = 'inline';
+                                          }
+                                        }}
+                                      />
+                                      <span style={{ color: '#aaa', fontSize: '11px', display: 'none' }}>No image</span>
+                                    </>
                                   ) : (
                                     <span style={{ color: '#aaa', fontSize: '11px' }}>No image</span>
                                   )}
@@ -1610,11 +1619,20 @@ export default function AdminDashboard() {
                               <td>{c.phone}</td>
                               <td>
                                 {c.image ? (
-                                  <img
-                                    src={getImageUrl(c.image)}
-                                    alt="Proof"
-                                    style={{ width: '38px', height: '38px', objectFit: 'cover', borderRadius: '4px' }}
-                                  />
+                                  <>
+                                    <img
+                                      src={getImageUrl(c.image)}
+                                      alt="Proof"
+                                      style={{ width: '38px', height: '38px', objectFit: 'cover', borderRadius: '4px' }}
+                                      onError={(e) => {
+                                        e.currentTarget.style.display = 'none';
+                                        if (e.currentTarget.nextElementSibling) {
+                                          e.currentTarget.nextElementSibling.style.display = 'inline';
+                                        }
+                                      }}
+                                    />
+                                    <span style={{ color: '#aaa', fontSize: '11px', display: 'none' }}>None</span>
+                                  </>
                                 ) : (
                                   <span style={{ color: '#aaa', fontSize: '11px' }}>None</span>
                                 )}
@@ -2350,7 +2368,14 @@ export default function AdminDashboard() {
                   src={getImageUrl(selectedClaim.image)}
                   alt="Proof"
                   style={{ maxWidth: '100%', maxHeight: '200px', borderRadius: '8px', objectFit: 'contain', border: '1px solid #ddd' }}
+                  onError={(e) => {
+                    e.currentTarget.style.display = 'none';
+                    if (e.currentTarget.nextElementSibling) {
+                      e.currentTarget.nextElementSibling.style.display = 'block';
+                    }
+                  }}
                 />
+                <span style={{ color: '#888', fontSize: '12px', display: 'none' }}>Proof image unavailable</span>
               </div>
             )}
 
@@ -2513,7 +2538,14 @@ export default function AdminDashboard() {
                   src={getImageUrl(viewDetailsItem.image)}
                   alt={viewDetailsItem.title}
                   style={{ maxWidth: '100%', maxHeight: '220px', borderRadius: '6px', objectFit: 'contain' }}
+                  onError={(e) => {
+                    e.currentTarget.style.display = 'none';
+                    if (e.currentTarget.nextElementSibling) {
+                      e.currentTarget.nextElementSibling.style.display = 'block';
+                    }
+                  }}
                 />
+                <span style={{ color: '#888', fontSize: '12px', display: 'none' }}>Image unavailable</span>
               </div>
             )}
             <div style={{ marginTop: '20px', textAlign: 'right' }}>

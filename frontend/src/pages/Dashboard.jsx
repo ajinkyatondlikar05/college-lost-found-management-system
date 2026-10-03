@@ -770,13 +770,21 @@ export default function Dashboard() {
                             alt={item.title}
                             className="ud-card-image"
                             loading="lazy"
+                            onError={(e) => {
+                              e.currentTarget.style.display = 'none';
+                              if (e.currentTarget.nextElementSibling) {
+                                e.currentTarget.nextElementSibling.style.display = 'flex';
+                              }
+                            }}
                           />
-                        ) : (
-                          <div className="ud-card-image-fallback">
-                            <MdFindInPage className="ud-fallback-icon" />
-                            <span>{item.category}</span>
-                          </div>
-                        )}
+                        ) : null}
+                        <div
+                          className="ud-card-image-fallback"
+                          style={{ display: item.image ? 'none' : 'flex' }}
+                        >
+                          <MdFindInPage className="ud-fallback-icon" />
+                          <span>{item.category}</span>
+                        </div>
                         <span className={`ud-status-badge ud-status-${statusClass}`}>
                           {item.status || 'Pending'}
                         </span>
@@ -906,13 +914,21 @@ export default function Dashboard() {
                     src={getImageUrl(selectedItem.image)}
                     alt={selectedItem.title}
                     className="ud-details-image"
+                    onError={(e) => {
+                      e.currentTarget.style.display = 'none';
+                      if (e.currentTarget.nextElementSibling) {
+                        e.currentTarget.nextElementSibling.style.display = 'flex';
+                      }
+                    }}
                   />
-                ) : (
-                  <div className="ud-details-image-placeholder">
-                    <MdFindInPage className="ud-placeholder-icon" />
-                    <span>No image provided</span>
-                  </div>
-                )}
+                ) : null}
+                <div
+                  className="ud-details-image-placeholder"
+                  style={{ display: selectedItem.image ? 'none' : 'flex' }}
+                >
+                  <MdFindInPage className="ud-placeholder-icon" />
+                  <span>{selectedItem.image ? 'Image unavailable' : 'No image provided'}</span>
+                </div>
               </div>
 
               {/* Right Column: Metadata */}

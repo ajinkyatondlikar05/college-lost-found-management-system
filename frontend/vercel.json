@@ -5,6 +5,10 @@
       "destination": "https://college-lost-found-management-syste-nine.vercel.app/api/:path*"
     },
     {
+      "source": "/uploads/:path*",
+      "destination": "https://college-lost-found-management-syste-nine.vercel.app/uploads/:path*"
+    },
+    {
       "source": "/(.*)",
       "destination": "/index.html"
     }
