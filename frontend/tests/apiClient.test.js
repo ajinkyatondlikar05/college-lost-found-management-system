@@ -53,6 +53,10 @@ describe('Frontend API Client Configuration & Endpoints', () => {
     assert.strictEqual(getImageUrl('uploads\\sample.png'), '/uploads/sample.png');
     assert.strictEqual(getImageUrl('https://example.com/photo.jpg'), 'https://example.com/photo.jpg');
     assert.strictEqual(getImageUrl('http://example.com/photo.jpg'), 'http://example.com/photo.jpg');
+    assert.strictEqual(
+      getImageUrl('https://res.cloudinary.com/apsit/image/upload/v12345/college-lost-found/items/laptop.jpg'),
+      'https://res.cloudinary.com/apsit/image/upload/v12345/college-lost-found/items/laptop.jpg'
+    );
   });
 
   it('should export all authentication API methods', () => {

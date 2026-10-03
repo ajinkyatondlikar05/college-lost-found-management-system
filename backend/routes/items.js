@@ -6,6 +6,7 @@ const Otp = require('../models/Otp');
 const { protect, adminOnly } = require('../middleware/auth');
 const upload = require('../middleware/upload');
 const { sendOtpEmail } = require('../utils/email');
+const { uploadImage } = require('../config/cloudinary');
 
 // @route   GET /api/items
 // @desc    Get all items (with filters, date range, location, sorting)
@@ -209,7 +210,14 @@ router.post('/', protect, upload.single('image'), async (req, res) => {
       await Otp.deleteOne({ _id: otpRecord._id });
     }
 
-    const image = req.file ? `/uploads/${req.file.filename}` : req.body.image || null;
+    let image = req.body.image || null;
+    if (req.file) {
+      try {
+        image = await uploadImage(req.file, 'college-lost-found/items');
+      } catch (uploadErr) {
+        return res.status(500).json({ message: uploadErr.message || 'Image upload failed' });
+      }
+    }
 
     const contactStr = contactInfo || (phone ? `Phone: ${phone}` : '') + (email ? ` | Email: ${email}` : '');
 
@@ -251,7 +259,13 @@ router.put('/:id', protect, upload.single('image'), async (req, res) => {
     }
 
     const updates = { ...req.body };
-    if (req.file) updates.image = `/uploads/${req.file.filename}`;
+    if (req.file) {
+      try {
+        updates.image = await uploadImage(req.file, 'college-lost-found/items');
+      } catch (uploadErr) {
+        return res.status(500).json({ message: uploadErr.message || 'Image upload failed' });
+      }
+    }
 
     const updated = await Item.findByIdAndUpdate(req.params.id, updates, {
       new: true,

@@ -4,6 +4,7 @@ const Claim = require('../models/Claim');
 const Item = require('../models/Item');
 const { protect, adminOnly } = require('../middleware/auth');
 const upload = require('../middleware/upload');
+const { uploadImage } = require('../config/cloudinary');
 
 // @route   GET /api/claims
 // @desc    Get all claim requests (with search, filter, pagination)
@@ -67,7 +68,14 @@ router.get('/:id', protect, adminOnly, async (req, res) => {
 router.post('/', protect, upload.single('image'), async (req, res) => {
   try {
     const { itemId, itemName, fullName, email, phone, additionalDetails } = req.body;
-    const image = req.file ? `/uploads/${req.file.filename}` : req.body.image || '';
+    let image = req.body.image || '';
+    if (req.file) {
+      try {
+        image = await uploadImage(req.file, 'college-lost-found/claims');
+      } catch (uploadErr) {
+        return res.status(500).json({ message: uploadErr.message || 'Image upload failed' });
+      }
+    }
 
     let item = null;
     let resolvedItemName = itemName || '';
@@ -140,7 +148,13 @@ router.put('/:id', protect, adminOnly, upload.single('image'), async (req, res) 
     if (!claim) return res.status(404).json({ message: 'Claim not found' });
 
     const updates = { ...req.body };
-    if (req.file) updates.image = `/uploads/${req.file.filename}`;
+    if (req.file) {
+      try {
+        updates.image = await uploadImage(req.file, 'college-lost-found/claims');
+      } catch (uploadErr) {
+        return res.status(500).json({ message: uploadErr.message || 'Image upload failed' });
+      }
+    }
 
     const updated = await Claim.findByIdAndUpdate(req.params.id, updates, {
       new: true,
