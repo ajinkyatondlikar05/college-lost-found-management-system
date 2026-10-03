@@ -276,39 +276,161 @@
   }
 }
 
-@media (max-width: 680px) {
+@media (max-width: 768px) {
+  /* 1. College Header (Compact, white, 100% width) */
   .institute-top-header {
-    padding: 0.85rem 1rem;
+    background-color: #ffffff;
+    width: 100%;
+    padding: 0.45rem 0.75rem 0.4rem;
+    box-sizing: border-box;
   }
 
   .institute-header-container {
-    gap: 0.95rem;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    width: 100%;
+    max-width: 100%;
+    margin: 0 auto;
+    box-sizing: border-box;
   }
 
+  /* 3 & 4. Logo centered horizontally, width approx 75-95px */
   .institute-logo {
-    width: 76px;
+    width: clamp(75px, 18vw, 82px);
+    height: auto;
+    aspect-ratio: 204 / 169;
+    object-fit: contain;
+    margin: 0 auto;
+    display: block;
   }
 
+  /* 5 & 6. Institute text below logo, center aligned */
+  .institute-text-block {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    width: 100%;
+    max-width: 100%;
+    gap: 1px;
+    box-sizing: border-box;
+  }
+
+  /* 7. Responsive font sizes */
+  /* Trust name: around 13-15px */
+  .institute-line-trust {
+    font-size: clamp(13px, 3.2vw, 14px);
+    font-weight: 600;
+    line-height: 1.2;
+    color: #1a237e;
+    letter-spacing: 0.1px;
+    margin: 0;
+  }
+
+  /* A. P. SHAH INSTITUTE OF TECHNOLOGY: around 18-22px */
+  .institute-line-name {
+    font-size: clamp(18px, 4.6vw, 21px);
+    font-weight: 900;
+    line-height: 1.15;
+    letter-spacing: 0.3px;
+    margin: 1px 0 2px;
+    text-transform: uppercase;
+    color: #1a237e;
+    text-shadow: none;
+    max-width: 100%;
+    word-break: normal;
+    overflow-wrap: break-word;
+  }
+
+  /* Approval/affiliation text: around 9-11px */
+  .institute-line-affil {
+    font-size: clamp(9px, 2.4vw, 10.5px);
+    font-weight: 500;
+    line-height: 1.25;
+    color: #0f172a;
+    margin: 0;
+    max-width: 100%;
+    word-break: normal;
+  }
+
+  /* Religious Jain Minority: around 9-11px */
+  .institute-line-minority {
+    font-size: clamp(9px, 2.4vw, 10.5px);
+    font-weight: 600;
+    line-height: 1.2;
+    color: #0f172a;
+    margin-top: 1px;
+  }
+
+  /* ===========================
+     MOBILE WELCOME SECTION
+  =========================== */
+  /* Reduce top padding after college header */
   .landing-portal-body {
-    padding: 2rem 1rem;
+    padding: 1.25rem 1rem 2rem;
     align-items: flex-start;
   }
 
   .landing-content {
-    gap: 2rem;
+    gap: 1.5rem;
+    width: 100%;
+    max-width: 100%;
   }
 
+  .landing-header {
+    text-align: center;
+    align-items: center;
+    gap: 0.5rem;
+    width: 100%;
+  }
+
+  /* Reduce portal icon size */
+  .landing-portal-icon {
+    margin-bottom: 0.1rem;
+  }
+
+  .landing-portal-icon svg {
+    width: 38px;
+    height: 38px;
+  }
+
+  /* Reduce "Welcome to Portal" font size to approximately 32-38px */
   .landing-title {
-    font-size: 1.85rem;
+    font-size: clamp(32px, 7.5vw, 38px);
+    line-height: 1.15;
+    letter-spacing: -0.5px;
   }
 
+  /* Reduce subtitle to approximately 16-18px */
+  .landing-subtitle {
+    font-size: clamp(16px, 3.8vw, 18px);
+    line-height: 1.4;
+    max-width: 90%;
+    margin: 0 auto;
+  }
+
+  /* Portal cards fit properly within mobile viewport */
   .portal-cards {
     grid-template-columns: 1fr;
     gap: 1.25rem;
+    width: 100%;
+    max-width: 440px;
+    margin: 0 auto;
+    box-sizing: border-box;
   }
 
   .portal-card {
-    padding: 2.25rem 1.5rem 2rem;
+    padding: 2rem 1.5rem 1.75rem;
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+  }
+
+  .portal-card-icon {
+    margin-bottom: 1rem;
   }
 
   .portal-card-icon svg {
@@ -316,19 +438,28 @@
     height: 64px;
   }
 
+  .portal-card-title {
+    font-size: 1.4rem;
+    margin-bottom: 0.65rem;
+  }
+
+  .portal-card-desc {
+    font-size: 0.9rem;
+    line-height: 1.55;
+    max-width: 100%;
+    margin-bottom: 0.4rem;
+  }
+
+  .portal-card-note {
+    font-size: 0.8rem;
+    margin-bottom: 1.5rem;
+  }
+
   .portal-btn {
-    min-width: 180px;
     width: 100%;
     max-width: 280px;
-  }
-}
-
-@media (max-width: 400px) {
-  .landing-title {
-    font-size: 1.6rem;
-  }
-
-  .portal-card-title {
-    font-size: 1.3rem;
+    min-width: 0;
+    box-sizing: border-box;
+    padding: 0.75rem 1.5rem;
   }
 }
