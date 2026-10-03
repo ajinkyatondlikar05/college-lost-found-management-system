@@ -40,6 +40,7 @@ import {
   getAdminAnalytics,
   getAdminNotifications,
   getAllItems,
+  getItemById,
   createItem,
   updateItem,
   deleteItem,
@@ -507,6 +508,15 @@ export default function AdminDashboard() {
       imageFile: null,
     });
     setLostFormOpen(true);
+  };
+
+  const handleOpenItemDetails = async (item) => {
+    try {
+      const res = await getItemById(item._id);
+      setViewDetailsItem(res.data);
+    } catch {
+      setViewDetailsItem(item);
+    }
   };
 
   const handleOpenEditItem = (item) => {
@@ -1364,7 +1374,7 @@ export default function AdminDashboard() {
                                   <button
                                     className="action-icon-btn action-icon-view"
                                     title="View"
-                                    onClick={() => setViewDetailsItem(item)}
+                                    onClick={() => handleOpenItemDetails(item)}
                                   >
                                     <FiEye />
                                   </button>
@@ -2136,6 +2146,7 @@ export default function AdminDashboard() {
                   >
                     <option value="lost">Lost Items Report</option>
                     <option value="found">Found Items Report</option>
+                    <option value="resolved">Resolved / Claimed Items Report</option>
                     <option value="claims">Claim Requests Report</option>
                     <option value="users">User Registration Report</option>
                     <option value="status">Status Distribution Report</option>
@@ -2152,6 +2163,15 @@ export default function AdminDashboard() {
                         exportRows = items.filter((i) => i.type === 'lost');
                       } else if (reportType === 'found') {
                         exportRows = items.filter((i) => i.type === 'found');
+                      } else if (reportType === 'resolved') {
+                        exportRows = items.filter((i) => (i.status || '').toLowerCase() === 'resolved' || (i.status || '').toLowerCase() === 'claimed').map((i) => ({
+                          ItemName: i.title,
+                          Owner: i.reportedBy?.name || '—',
+                          Finder: i.foundBy?.name || i.claimedBy?.name || '—',
+                          ClaimStatus: i.status,
+                          ClaimDate: i.claims?.[0]?.createdAt ? new Date(i.claims[0].createdAt).toLocaleDateString() : '—',
+                          ResolutionDate: i.resolvedAt ? new Date(i.resolvedAt).toLocaleDateString() : '—',
+                        }));
                       } else if (reportType === 'claims') {
                         exportRows = claims;
                       } else if (reportType === 'users') {
@@ -2213,6 +2233,37 @@ export default function AdminDashboard() {
                             <td>{item.location}</td>
                             <td>{item.date ? new Date(item.date).toLocaleDateString() : '—'}</td>
                             <td><span className={`status-pill ${(item.status || 'pending').toLowerCase()}`}>{item.status}</span></td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </>
+                  )}
+
+                  {reportType === 'resolved' && (
+                    <>
+                      <thead>
+                        <tr>
+                          <th>ITEM NAME</th>
+                          <th>REPORTED BY / OWNER</th>
+                          <th>FOUND BY / FINDER</th>
+                          <th>CLAIM STATUS</th>
+                          <th>CLAIM DATE</th>
+                          <th>RESOLUTION DATE</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {items.filter((i) => (i.status || '').toLowerCase() === 'resolved' || (i.status || '').toLowerCase() === 'claimed').map((item) => (
+                          <tr key={item._id}>
+                            <td style={{ fontWeight: 600 }}>{item.title}</td>
+                            <td>{item.reportedBy?.name || '—'}</td>
+                            <td>{item.foundBy?.name || item.claimedBy?.name || (item.claims?.[0]?.finder?.name || item.claims?.[0]?.fullName) || '—'}</td>
+                            <td>
+                              <span className={`status-pill ${(item.status || 'resolved').toLowerCase()}`}>
+                                {item.status || 'Resolved'}
+                              </span>
+                            </td>
+                            <td>{item.claims?.[0]?.createdAt ? new Date(item.claims[0].createdAt).toLocaleDateString() : '—'}</td>
+                            <td>{item.resolvedAt ? new Date(item.resolvedAt).toLocaleDateString() : new Date(item.updatedAt).toLocaleDateString()}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -2329,23 +2380,33 @@ export default function AdminDashboard() {
               <span className="detail-value">{selectedClaim.item?._id || 'N/A'} ({selectedClaim.itemName || selectedClaim.item?.title || '—'})</span>
             </div>
             <div className="detail-row">
-              <span className="detail-label">Full Name:</span>
-              <span className="detail-value" style={{ fontWeight: 600 }}>{selectedClaim.fullName}</span>
+              <span className="detail-label">Reported By / Owner:</span>
+              <span className="detail-value">
+                {selectedClaim.owner?.name
+                  ? `${selectedClaim.owner.name} (${selectedClaim.owner.email || ''}${selectedClaim.owner.phone ? ' | ' + selectedClaim.owner.phone : ''})`
+                  : (selectedClaim.item?.reportedBy?.name
+                    ? `${selectedClaim.item.reportedBy.name} (${selectedClaim.item.reportedBy.email || ''}${selectedClaim.item.reportedBy.phone ? ' | ' + selectedClaim.item.reportedBy.phone : ''})`
+                    : '—')}
+              </span>
             </div>
             <div className="detail-row">
-              <span className="detail-label">Email Address:</span>
-              <span className="detail-value">{selectedClaim.email}</span>
+              <span className="detail-label">Found By / Finder:</span>
+              <span className="detail-value" style={{ fontWeight: 600 }}>
+                {selectedClaim.finder?.name || selectedClaim.fullName || '—'}
+              </span>
             </div>
             <div className="detail-row">
-              <span className="detail-label">Phone Number:</span>
-              <span className="detail-value">{selectedClaim.phone}</span>
+              <span className="detail-label">Finder Contact Info:</span>
+              <span className="detail-value">
+                {selectedClaim.finder?.email || selectedClaim.email} | {selectedClaim.finder?.phone || selectedClaim.phone}
+              </span>
             </div>
             <div className="detail-row">
-              <span className="detail-label">Additional Details:</span>
-              <span className="detail-value">{selectedClaim.additionalDetails || 'None provided'}</span>
+              <span className="detail-label">Finder Message:</span>
+              <span className="detail-value">{selectedClaim.finderMessage || selectedClaim.additionalDetails || 'None provided'}</span>
             </div>
             <div className="detail-row">
-              <span className="detail-label">Status:</span>
+              <span className="detail-label">Claim Status:</span>
               <span className="detail-value">
                 <span className={`status-pill ${(selectedClaim.status || 'pending').toLowerCase()}`}>
                   {selectedClaim.status}
@@ -2353,12 +2414,26 @@ export default function AdminDashboard() {
               </span>
             </div>
             <div className="detail-row">
-              <span className="detail-label">Submitted At:</span>
+              <span className="detail-label">Claim Date:</span>
               <span className="detail-value">{new Date(selectedClaim.submittedAt || selectedClaim.createdAt).toLocaleString()}</span>
             </div>
             <div className="detail-row">
-              <span className="detail-label">Updated At:</span>
-              <span className="detail-value">{new Date(selectedClaim.updatedAt).toLocaleString()}</span>
+              <span className="detail-label">Resolution Date:</span>
+              <span className="detail-value">
+                {selectedClaim.resolvedAt
+                  ? new Date(selectedClaim.resolvedAt).toLocaleString()
+                  : (selectedClaim.item?.resolvedAt
+                    ? new Date(selectedClaim.item.resolvedAt).toLocaleString()
+                    : 'Not resolved yet')}
+              </span>
+            </div>
+            <div className="detail-row">
+              <span className="detail-label">Resolution History:</span>
+              <span className="detail-value">
+                {selectedClaim.status === 'resolved' || selectedClaim.status === 'approved' || selectedClaim.item?.status === 'Resolved'
+                  ? `Claim was marked as ${selectedClaim.status} on ${new Date(selectedClaim.resolvedAt || selectedClaim.updatedAt).toLocaleString()}`
+                  : `Claim currently has status "${selectedClaim.status}" (Initial contact recorded)`}
+              </span>
             </div>
 
             {selectedClaim.image && (
@@ -2531,6 +2606,71 @@ export default function AdminDashboard() {
                 </span>
               </div>
             )}
+            <div className="detail-row">
+              <span className="detail-label">Reported By / Owner:</span>
+              <span className="detail-value">
+                {viewDetailsItem.reportedBy?.name
+                  ? `${viewDetailsItem.reportedBy.name} (${viewDetailsItem.reportedBy.email || ''}${viewDetailsItem.reportedBy.phone ? ' | ' + viewDetailsItem.reportedBy.phone : ''})`
+                  : '—'}
+              </span>
+            </div>
+            <div className="detail-row">
+              <span className="detail-label">Found By / Finder:</span>
+              <span className="detail-value">
+                {viewDetailsItem.foundBy?.name
+                  ? `${viewDetailsItem.foundBy.name} (${viewDetailsItem.foundBy.email || ''}${viewDetailsItem.foundBy.phone ? ' | ' + viewDetailsItem.foundBy.phone : ''})`
+                  : (viewDetailsItem.claims?.[0]?.finder?.name
+                    ? `${viewDetailsItem.claims[0].finder.name} (${viewDetailsItem.claims[0].finder.email || ''})`
+                    : (viewDetailsItem.claims?.[0]?.fullName
+                      ? `${viewDetailsItem.claims[0].fullName} (${viewDetailsItem.claims[0].email || ''})`
+                      : '—'))}
+              </span>
+            </div>
+            {(viewDetailsItem.foundBy?.email || viewDetailsItem.claims?.[0]?.email || viewDetailsItem.claims?.[0]?.phone) && (
+              <div className="detail-row">
+                <span className="detail-label">Finder Contact:</span>
+                <span className="detail-value">
+                  {viewDetailsItem.claims?.[0]?.email || viewDetailsItem.foundBy?.email || '—'}
+                  {(viewDetailsItem.claims?.[0]?.phone || viewDetailsItem.foundBy?.phone) ? ` | ${viewDetailsItem.claims?.[0]?.phone || viewDetailsItem.foundBy?.phone}` : ''}
+                </span>
+              </div>
+            )}
+            {(viewDetailsItem.claims?.[0]?.finderMessage || viewDetailsItem.claims?.[0]?.additionalDetails) && (
+              <div className="detail-row">
+                <span className="detail-label">Finder Message:</span>
+                <span className="detail-value">
+                  {viewDetailsItem.claims[0].finderMessage || viewDetailsItem.claims[0].additionalDetails}
+                </span>
+              </div>
+            )}
+            {viewDetailsItem.claims && viewDetailsItem.claims.length > 0 && (
+              <div className="detail-row">
+                <span className="detail-label">Claim Status:</span>
+                <span className="detail-value">
+                  <span className={`status-pill ${(viewDetailsItem.claims[0].status || 'pending').toLowerCase()}`}>
+                    {viewDetailsItem.claims[0].status}
+                  </span>
+                </span>
+              </div>
+            )}
+            <div className="detail-row">
+              <span className="detail-label">Resolution Date:</span>
+              <span className="detail-value">
+                {viewDetailsItem.resolvedAt
+                  ? new Date(viewDetailsItem.resolvedAt).toLocaleString()
+                  : ((viewDetailsItem.status || '').toLowerCase() === 'resolved'
+                    ? new Date(viewDetailsItem.updatedAt).toLocaleString()
+                    : 'Not resolved')}
+              </span>
+            </div>
+            <div className="detail-row">
+              <span className="detail-label">Resolution History:</span>
+              <span className="detail-value">
+                {(viewDetailsItem.status || '').toLowerCase() === 'resolved'
+                  ? `Item officially recovered and marked Resolved on ${new Date(viewDetailsItem.resolvedAt || viewDetailsItem.updatedAt).toLocaleString()}`
+                  : `Item status is ${viewDetailsItem.status || 'Active'}`}
+              </span>
+            </div>
             {viewDetailsItem.image && (
               <div style={{ marginTop: '12px' }}>
                 <span className="detail-label" style={{ display: 'block', marginBottom: '6px' }}>Image:</span>

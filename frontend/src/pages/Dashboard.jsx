@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { getAllItems, createItem, createClaim, sendReportOtp, getImageUrl } from '../api';
+import { getAllItems, createItem, createClaim, recoverItem, sendReportOtp, getImageUrl } from '../api';
 import toast from 'react-hot-toast';
 import {
   FiSearch,
@@ -400,18 +400,35 @@ export default function Dashboard() {
       formData.append('email', claimForm.email.trim());
       formData.append('phone', claimForm.phone.trim());
       formData.append('additionalDetails', claimForm.additionalDetails.trim());
+      formData.append('finderMessage', claimForm.additionalDetails.trim());
       if (claimImageFile) {
         formData.append('image', claimImageFile);
       }
 
       await createClaim(formData);
-      toast.success('Claim submitted successfully! The admin will review it.');
+      if (claimTargetItem?.type === 'lost') {
+        toast.success('Your message has been sent to the owner! They will contact you shortly.');
+      } else {
+        toast.success('Claim submitted successfully! The admin will review it.');
+      }
       setIsClaimModalOpen(false);
       setClaimTargetItem(null);
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to submit claim request');
     } finally {
       setIsSubmittingClaim(false);
+    }
+  };
+
+  const handleRecoverItem = async (itemId) => {
+    if (!window.confirm('Confirm that you have recovered your lost item? This will mark it as resolved.')) return;
+    try {
+      await recoverItem(itemId);
+      toast.success('Item marked as recovered and resolved!');
+      setSelectedItem(null);
+      fetchItems();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to update item status');
     }
   };
 
@@ -1022,7 +1039,21 @@ export default function Dashboard() {
 
                 {/* Action button */}
                 <div className="ud-details-action-wrap">
-                  {selectedItem.type === 'lost' ? (
+                  {selectedItem.status === 'Resolved' ? (
+                    <span className="ud-status-badge ud-status-resolved" style={{ padding: '8px 16px', fontSize: '13px' }}>
+                      ✓ This item has been recovered and resolved.
+                    </span>
+                  ) : user && selectedItem.reportedBy && (selectedItem.reportedBy._id === user._id || selectedItem.reportedBy === user._id) ? (
+                    selectedItem.type === 'lost' ? (
+                      <button
+                        className="ud-btn-action-primary"
+                        style={{ background: '#10b981', borderColor: '#10b981' }}
+                        onClick={() => handleRecoverItem(selectedItem._id)}
+                      >
+                        I Got My Item Back
+                      </button>
+                    ) : null
+                  ) : selectedItem.type === 'lost' ? (
                     <button
                       className="ud-btn-action-primary"
                       onClick={() => handleOpenClaimModal(selectedItem)}

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { getMyReports, deleteItem, getImageUrl } from '../api';
+import { getMyReports, deleteItem, getImageUrl, recoverItem } from '../api';
 import { useAuth } from '../context/AuthContext';
 import toast from 'react-hot-toast';
 import {
@@ -156,6 +156,19 @@ export default function MyReports() {
       }
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to delete report');
+    }
+  };
+
+  const handleRecover = async (itemId) => {
+    try {
+      await recoverItem(itemId);
+      toast.success('Item successfully marked as recovered!');
+      fetchReports();
+      if (selectedItem && selectedItem._id === itemId) {
+        setSelectedItem(null);
+      }
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to mark item as recovered');
     }
   };
 
@@ -600,6 +613,16 @@ export default function MyReports() {
                     </div>
 
                     <div className="footer-button-group">
+                      {isLost && rawStatus !== 'RESOLVED' && rawStatus !== 'CLAIMED' && (
+                        <button
+                          className="btn-print-report"
+                          style={{ background: '#059669', color: '#fff', borderColor: '#059669' }}
+                          onClick={() => handleRecover(item._id)}
+                          title="I Got My Item Back"
+                        >
+                          <FiCheckCircle /> I Got My Item Back
+                        </button>
+                      )}
                       <button
                         className="btn-view-details"
                         onClick={() => setSelectedItem(item)}
@@ -801,13 +824,31 @@ export default function MyReports() {
                             )}
                           </>
                         )}
+                        {selectedItem.foundBy && (
+                          <div className="detail-row">
+                            <span className="row-key">Found By:</span>
+                            <span className="row-val">
+                              {typeof selectedItem.foundBy === 'object'
+                                ? `${selectedItem.foundBy.name} (${selectedItem.foundBy.email || ''})`
+                                : selectedItem.foundBy}
+                            </span>
+                          </div>
+                        )}
+                        {selectedItem.latestClaim?.finderMessage && (
+                          <div className="detail-row">
+                            <span className="row-key">Finder Message:</span>
+                            <span className="row-val">
+                              {selectedItem.latestClaim.finderMessage}
+                            </span>
+                          </div>
+                        )}
                         {(selectedItem.status === 'Resolved' ||
                           selectedItem.status === 'Claimed') && (
                           <>
                             <div className="detail-row">
                               <span className="row-key">Resolution Date:</span>
                               <span className="row-val">
-                                {formatDateTime(selectedItem.updatedAt)}
+                                {formatDateTime(selectedItem.resolvedAt || selectedItem.updatedAt)}
                               </span>
                             </div>
                             <div className="detail-row">
@@ -826,6 +867,17 @@ export default function MyReports() {
               </div>
 
               <div className="modal-footer">
+                {(selectedItem.type || '').toLowerCase() === 'lost' &&
+                  (selectedItem.status || '').toLowerCase() !== 'resolved' &&
+                  (selectedItem.status || '').toLowerCase() !== 'claimed' && (
+                    <button
+                      className="btn-print-report"
+                      style={{ background: '#059669', color: '#fff', borderColor: '#059669' }}
+                      onClick={() => handleRecover(selectedItem._id)}
+                    >
+                      <FiCheckCircle /> I Got My Item Back
+                    </button>
+                  )}
                 <button
                   className="btn-print-report"
                   onClick={() => handlePrintSingle(selectedItem)}

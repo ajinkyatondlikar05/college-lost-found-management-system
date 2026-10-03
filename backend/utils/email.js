@@ -254,10 +254,65 @@ APSIT Lost & Found Management System`;
   }
 };
 
+/**
+ * Send email notification to lost-item owner when another student reports finding it
+ * @param {Object} params - { ownerEmail, ownerName, itemName, finderName, finderEmail, finderPhone, finderMessage }
+ * @returns {Promise<{ success: boolean, messageId?: string, error?: string }>}
+ */
+const sendItemFoundNotificationEmail = async ({
+  ownerEmail,
+  ownerName,
+  itemName,
+  finderName,
+  finderEmail,
+  finderPhone,
+  finderMessage,
+}) => {
+  const mailer = getTransporter();
+  if (!mailer) {
+    const errorMsg = 'SMTP credentials not configured in backend .env';
+    console.error(`[SMTP] Send aborted: ${errorMsg}`);
+    return { success: false, error: errorMsg };
+  }
+
+  const subject = `APSIT Lost & Found - Good News! Your lost item "${itemName || 'Item'}" has been found!`;
+  const text = `Hello ${ownerName || 'Student'},
+
+Great news! Another student, ${finderName || 'A Student'}, has reported finding your lost item: "${itemName || 'Item'}".
+
+Finder Details:
+- Name: ${finderName || 'Student'}
+- Email: ${finderEmail}
+- Phone: ${finderPhone || 'Not provided'}
+${finderMessage ? `- Message from Finder: "${finderMessage}"\n` : ''}
+How to proceed:
+1. Please contact ${finderName || 'the student'} directly via email (${finderEmail})${finderPhone ? ` or phone (${finderPhone})` : ''} to coordinate the return and verify ownership.
+2. Once you have successfully recovered your item, log in to the College Lost & Found portal and click "I Got My Item Back" on your report to close and resolve the report.
+
+Thank you,
+APSIT Lost & Found Management System`;
+
+  try {
+    console.log(`[SMTP] Dispatching item found notification to owner: ${ownerEmail}`);
+    const info = await mailer.sendMail({
+      from: getFromAddress(),
+      to: ownerEmail,
+      subject,
+      text,
+    });
+    console.log(`[SMTP] Item found notification sent successfully to: ${ownerEmail} | MessageID: ${info.messageId}`);
+    return { success: true, messageId: info.messageId };
+  } catch (error) {
+    console.error(`[SMTP] Failed to deliver found notification to: ${ownerEmail} | Error: ${error.message}`);
+    return { success: false, error: error.message };
+  }
+};
+
 module.exports = {
   verifyEmailTransporter,
   sendApprovalEmail,
   sendRejectionEmail,
   sendOtpEmail,
   sendClaimStatusEmail,
+  sendItemFoundNotificationEmail,
 };

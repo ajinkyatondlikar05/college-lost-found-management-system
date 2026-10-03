@@ -3,6 +3,7 @@ const router = express.Router();
 const Item = require('../models/Item');
 const User = require('../models/User');
 const Otp = require('../models/Otp');
+const Claim = require('../models/Claim');
 const { protect, adminOnly } = require('../middleware/auth');
 const upload = require('../middleware/upload');
 const { sendOtpEmail } = require('../utils/email');
@@ -50,7 +51,11 @@ router.get('/', async (req, res) => {
 
     const total = await Item.countDocuments(filter);
     const items = await Item.find(filter)
-      .populate('reportedBy', 'name email department phone studentId')
+      .populate([
+        { path: 'reportedBy', select: 'name email department phone studentId' },
+        { path: 'foundBy', select: 'name email department phone studentId' },
+        { path: 'claimedBy', select: 'name email department phone studentId' },
+      ])
       .sort(sortObj)
       .skip((page - 1) * limit)
       .limit(parseInt(limit));
@@ -71,12 +76,22 @@ router.get('/', async (req, res) => {
 // @access  Public
 router.get('/:id', async (req, res) => {
   try {
-    const item = await Item.findById(req.params.id).populate(
-      'reportedBy',
-      'name email phone department studentId'
-    );
+    const item = await Item.findById(req.params.id)
+      .populate([
+        { path: 'reportedBy', select: 'name email phone department studentId' },
+        { path: 'foundBy', select: 'name email phone department studentId' },
+        { path: 'claimedBy', select: 'name email phone department studentId' },
+      ]);
     if (!item) return res.status(404).json({ message: 'Item not found' });
-    res.json(item);
+
+    const claims = await Claim.find({ item: item._id })
+      .populate('finder', 'name email phone studentId department')
+      .populate('owner', 'name email phone studentId department')
+      .sort({ createdAt: -1 });
+
+    const itemObj = item.toObject();
+    itemObj.claims = claims;
+    res.json(itemObj);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -311,12 +326,14 @@ router.get('/user/my-reports', protect, async (req, res) => {
     const Claim = require('../models/Claim');
     const items = await Item.find({ reportedBy: req.user._id })
       .populate('reportedBy', 'name email department phone studentId')
+      .populate('foundBy', 'name email department phone studentId')
       .populate('claimedBy', 'name email studentId')
       .sort({ createdAt: -1 })
       .lean();
 
     const itemIds = items.map((i) => i._id);
     const claims = await Claim.find({ item: { $in: itemIds } })
+      .populate('finder', 'name email phone studentId department')
       .populate('processedBy', 'name email')
       .sort({ createdAt: -1 })
       .lean();
@@ -335,6 +352,67 @@ router.get('/user/my-reports', protect, async (req, res) => {
     });
 
     res.json(enrichedItems);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// @route   PUT /api/items/:id/recover
+// @desc    Lost item owner marks item as recovered/resolved ("I Got My Item Back")
+// @access  Private (Owner or Admin)
+router.put('/:id/recover', protect, async (req, res) => {
+  try {
+    const item = await Item.findById(req.params.id);
+    if (!item) {
+      return res.status(404).json({ message: 'Item not found' });
+    }
+
+    // Only owner or admin can confirm recovery
+    const ownerId = item.reportedBy?._id ? item.reportedBy._id.toString() : (item.reportedBy ? item.reportedBy.toString() : '');
+    if (ownerId !== req.user._id.toString() && req.user.role !== 'admin') {
+      return res.status(403).json({ message: 'Only the item owner or an admin can confirm recovery of this item.' });
+    }
+
+    if (item.status === 'Resolved') {
+      return res.status(400).json({ message: 'This item has already been marked as resolved.' });
+    }
+
+    const now = new Date();
+
+    // Find the latest active claim for this item
+    const claim = await Claim.findOne({
+      item: item._id,
+      status: { $in: ['Contacted', 'Pending Owner Confirmation', 'pending', 'approved'] },
+    }).sort({ createdAt: -1 });
+
+    if (claim) {
+      claim.status = 'resolved';
+      claim.resolvedAt = now;
+      await claim.save();
+
+      if (claim.finder) {
+        item.foundBy = claim.finder;
+        item.claimedBy = claim.finder;
+      }
+    }
+
+    item.status = 'Resolved';
+    item.resolvedAt = now;
+    await item.save();
+
+    const populated = await Item.findById(item._id)
+      .populate([
+        { path: 'reportedBy', select: 'name email department phone studentId' },
+        { path: 'foundBy', select: 'name email department phone studentId' },
+        { path: 'claimedBy', select: 'name email department phone studentId' },
+      ]);
+
+    const result = populated && populated.toObject ? populated.toObject() : (populated ? { ...populated } : { ...item });
+    result.success = true;
+    result.message = 'Item marked as recovered and resolved successfully!';
+    result.item = populated;
+
+    res.json(result);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }

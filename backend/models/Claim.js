@@ -37,14 +37,33 @@ const claimSchema = new mongoose.Schema(
       default: '',
       trim: true,
     },
+    finderMessage: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+    owner: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: null,
+    },
+    finder: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: null,
+    },
     status: {
       type: String,
-      enum: ['pending', 'approved', 'rejected'],
+      enum: ['pending', 'Contacted', 'Pending Owner Confirmation', 'approved', 'rejected', 'resolved'],
       default: 'pending',
     },
     submittedAt: {
       type: Date,
       default: Date.now,
+    },
+    resolvedAt: {
+      type: Date,
+      default: null,
     },
     processedBy: {
       type: mongoose.Schema.Types.ObjectId,

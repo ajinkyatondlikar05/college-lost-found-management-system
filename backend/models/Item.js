@@ -49,6 +49,16 @@ const itemSchema = new mongoose.Schema(
     claimedBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
+      default: null,
+    },
+    foundBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: null,
+    },
+    resolvedAt: {
+      type: Date,
+      default: null,
     },
   },
   { timestamps: true }

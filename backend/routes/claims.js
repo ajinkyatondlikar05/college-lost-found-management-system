@@ -6,6 +6,8 @@ const { protect, adminOnly } = require('../middleware/auth');
 const upload = require('../middleware/upload');
 const { uploadImage } = require('../config/cloudinary');
 
+const emailUtils = require('../utils/email');
+
 // @route   GET /api/claims
 // @desc    Get all claim requests (with search, filter, pagination)
 // @access  Admin
@@ -25,12 +27,22 @@ router.get('/', protect, adminOnly, async (req, res) => {
         { phone: { $regex: search, $options: 'i' } },
         { itemName: { $regex: search, $options: 'i' } },
         { additionalDetails: { $regex: search, $options: 'i' } },
+        { finderMessage: { $regex: search, $options: 'i' } },
       ];
     }
 
     const total = await Claim.countDocuments(filter);
     const claims = await Claim.find(filter)
-      .populate('item', 'title category location date image type status')
+      .populate({
+        path: 'item',
+        select: 'title category location date image type status reportedBy foundBy claimedBy resolvedAt',
+        populate: [
+          { path: 'reportedBy', select: 'name email phone studentId department' },
+          { path: 'foundBy', select: 'name email phone studentId department' },
+        ],
+      })
+      .populate('owner', 'name email phone studentId department')
+      .populate('finder', 'name email phone studentId department')
       .populate('processedBy', 'name email')
       .sort({ createdAt: -1 })
       .skip((page - 1) * limit)
@@ -53,7 +65,15 @@ router.get('/', protect, adminOnly, async (req, res) => {
 router.get('/:id', protect, adminOnly, async (req, res) => {
   try {
     const claim = await Claim.findById(req.params.id)
-      .populate('item')
+      .populate({
+        path: 'item',
+        populate: [
+          { path: 'reportedBy', select: 'name email phone studentId department' },
+          { path: 'foundBy', select: 'name email phone studentId department' },
+        ],
+      })
+      .populate('owner', 'name email phone studentId department')
+      .populate('finder', 'name email phone studentId department')
       .populate('processedBy', 'name email');
     if (!claim) return res.status(404).json({ message: 'Claim request not found' });
     res.json(claim);
@@ -63,11 +83,11 @@ router.get('/:id', protect, adminOnly, async (req, res) => {
 });
 
 // @route   POST /api/claims
-// @desc    Create a new claim request
+// @desc    Create a new claim / found-item report
 // @access  Private
 router.post('/', protect, upload.single('image'), async (req, res) => {
   try {
-    const { itemId, itemName, fullName, email, phone, additionalDetails } = req.body;
+    const { itemId, itemName, fullName, email, phone, additionalDetails, finderMessage } = req.body;
     let image = req.body.image || '';
     if (req.file) {
       try {
@@ -80,11 +100,36 @@ router.post('/', protect, upload.single('image'), async (req, res) => {
     let item = null;
     let resolvedItemName = itemName || '';
     if (itemId) {
-      item = await Item.findById(itemId);
-      if (item && !resolvedItemName) {
-        resolvedItemName = item.title;
+      item = await Item.findById(itemId).populate('reportedBy', 'name email phone studentId department');
+      if (!item) {
+        return res.status(404).json({ message: 'Target item not found' });
+      }
+      resolvedItemName = item.title;
+
+      // Validate item status: cannot claim already resolved/claimed items
+      if (item.status === 'Resolved' || item.status === 'Claimed') {
+        return res.status(400).json({ message: 'This item has already been resolved or claimed.' });
+      }
+
+      // Prevent self-claim: owner cannot claim their own reported item
+      if (item.reportedBy && item.reportedBy._id.toString() === req.user._id.toString()) {
+        return res.status(400).json({ message: 'You cannot claim or report finding your own reported item.' });
+      }
+
+      // Prevent duplicate active claims by the same finder for the same item
+      const existingClaim = await Claim.findOne({
+        item: item._id,
+        finder: req.user._id,
+        status: { $in: ['pending', 'Contacted', 'Pending Owner Confirmation', 'approved'] },
+      });
+      if (existingClaim) {
+        return res.status(400).json({ message: 'You have already submitted an active claim or finder report for this item.' });
       }
     }
+
+    const messageContent = (finderMessage || additionalDetails || '').trim();
+    const isLostItemFound = item && item.type === 'lost';
+    const initialStatus = isLostItemFound ? 'Contacted' : 'pending';
 
     const claim = await Claim.create({
       item: item ? item._id : null,
@@ -93,23 +138,52 @@ router.post('/', protect, upload.single('image'), async (req, res) => {
       email: email || req.user.email,
       phone: phone || req.user.phone || 'N/A',
       image,
-      additionalDetails: additionalDetails || '',
-      status: 'pending',
+      additionalDetails: messageContent,
+      finderMessage: messageContent,
+      status: initialStatus,
+      owner: item && item.reportedBy ? (item.reportedBy._id || item.reportedBy) : null,
+      finder: req.user._id,
     });
 
-    res.status(201).json(claim);
+    // If another student found a lost item, notify the owner immediately via email
+    if (isLostItemFound && item.reportedBy && item.reportedBy.email) {
+      const emailResult = await emailUtils.sendItemFoundNotificationEmail({
+        ownerEmail: item.reportedBy.email,
+        ownerName: item.reportedBy.name,
+        itemName: item.title,
+        finderName: req.user.name || fullName || 'A Student',
+        finderEmail: req.user.email || email,
+        finderPhone: phone || req.user.phone || '',
+        finderMessage: messageContent,
+      });
+
+      if (!emailResult.success) {
+        // Rollback claim record so no broken/orphaned record is left
+        await Claim.findByIdAndDelete(claim._id);
+        return res.status(500).json({
+          message: 'Failed to notify the item owner via email. Please check network and try again.',
+        });
+      }
+    }
+
+    const populatedClaim = await Claim.findById(claim._id)
+      .populate('item')
+      .populate('owner', 'name email phone studentId department')
+      .populate('finder', 'name email phone studentId department');
+
+    res.status(201).json(populatedClaim);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
 });
 
 // @route   PUT /api/claims/:id/status
-// @desc    Update claim status (approve/reject/pending)
+// @desc    Update claim status (approve/reject/pending/resolved)
 // @access  Admin
 router.put('/:id/status', protect, adminOnly, async (req, res) => {
   try {
     const { status } = req.body;
-    if (!['pending', 'approved', 'rejected'].includes(status)) {
+    if (!['pending', 'Contacted', 'Pending Owner Confirmation', 'approved', 'rejected', 'resolved'].includes(status)) {
       return res.status(400).json({ message: 'Invalid status' });
     }
 
@@ -118,19 +192,30 @@ router.put('/:id/status', protect, adminOnly, async (req, res) => {
 
     claim.status = status;
     claim.processedBy = req.user._id;
+    if (status === 'approved' || status === 'resolved') {
+      claim.resolvedAt = new Date();
+    }
     await claim.save();
 
-    // If approved and associated with an item, update item status to Claimed/Resolved
-    if (status === 'approved' && claim.item) {
-      await Item.findByIdAndUpdate(claim.item, { status: 'Resolved' });
+    // If approved or resolved and associated with an item, update item status to Resolved
+    if ((status === 'approved' || status === 'resolved') && claim.item) {
+      await Item.findByIdAndUpdate(claim.item, {
+        status: 'Resolved',
+        foundBy: claim.finder || null,
+        claimedBy: claim.finder || null,
+        resolvedAt: new Date(),
+      });
     }
 
-    // Send email notification to claimant
-    const { sendClaimStatusEmail } = require('../utils/email');
-    await sendClaimStatusEmail(claim);
+    // Send email notification to claimant if approved/rejected
+    if (status === 'approved' || status === 'rejected') {
+      await emailUtils.sendClaimStatusEmail(claim);
+    }
 
     const updated = await Claim.findById(claim._id)
       .populate('item')
+      .populate('owner', 'name email phone studentId department')
+      .populate('finder', 'name email phone studentId department')
       .populate('processedBy', 'name email');
 
     res.json(updated);

@@ -9,6 +9,7 @@ import API, {
   createItem,
   updateItem,
   deleteItem,
+  recoverItem,
   getMyReports,
   sendReportOtp,
   verifyReportOtp,
@@ -71,6 +72,7 @@ describe('Frontend API Client Configuration & Endpoints', () => {
     assert.strictEqual(typeof createItem, 'function');
     assert.strictEqual(typeof updateItem, 'function');
     assert.strictEqual(typeof deleteItem, 'function');
+    assert.strictEqual(typeof recoverItem, 'function');
     assert.strictEqual(typeof getMyReports, 'function');
     assert.strictEqual(typeof sendReportOtp, 'function');
     assert.strictEqual(typeof verifyReportOtp, 'function');
