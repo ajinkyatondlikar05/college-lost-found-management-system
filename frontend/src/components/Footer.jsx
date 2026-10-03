@@ -10,7 +10,7 @@ export default function Footer() {
           <div className="footer-brand">
             <Link to="/" className="footer-logo">
               <MdFindInPage />
-              <span>Lost<span style={{color:'var(--primary-light)'}}>&#38;Found</span></span>
+              <span>Lost<span style={{color:'var(--primary)'}}>&#38;Found</span></span>
             </Link>
             <p>Helping the college community recover what matters.</p>
           </div>
@@ -33,8 +33,8 @@ export default function Footer() {
       </div>
       <style>{`
         .footer {
-          background: var(--bg-card);
-          border-top: 1px solid var(--border);
+          background: #ffffff;
+          border-top: 1px solid #e2e8f0;
           padding: 3rem 0 1.5rem;
           margin-top: 4rem;
         }
@@ -50,13 +50,13 @@ export default function Footer() {
           gap: 0.5rem;
           font-size: 1.2rem;
           font-weight: 800;
-          color: var(--text-primary);
+          color: #0f172a;
           text-decoration: none;
           margin-bottom: 0.75rem;
         }
-        .footer-logo svg { font-size: 1.5rem; color: var(--primary-light); }
+        .footer-logo svg { font-size: 1.5rem; color: var(--primary); }
         .footer-brand p {
-          color: var(--text-muted);
+          color: #64748b;
           font-size: 0.875rem;
           max-width: 280px;
         }
@@ -64,22 +64,23 @@ export default function Footer() {
           font-size: 0.8rem;
           text-transform: uppercase;
           letter-spacing: 1px;
-          color: var(--text-muted);
+          color: #1e293b;
+          font-weight: 700;
           margin-bottom: 1rem;
         }
         .footer-links-group a {
           display: block;
-          color: var(--text-secondary);
+          color: #64748b;
           font-size: 0.875rem;
           margin-bottom: 0.5rem;
           transition: color 0.2s;
         }
-        .footer-links-group a:hover { color: var(--primary-light); }
+        .footer-links-group a:hover { color: var(--primary); }
         .footer-bottom {
-          border-top: 1px solid var(--border);
+          border-top: 1px solid #f1f5f9;
           padding-top: 1.5rem;
           text-align: center;
-          color: var(--text-muted);
+          color: #94a3b8;
           font-size: 0.8rem;
         }
         @media (max-width: 768px) {

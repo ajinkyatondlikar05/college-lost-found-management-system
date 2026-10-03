@@ -84,6 +84,18 @@ describe('Items & Reports API Endpoints Protection and Query Behavior', () => {
       assert.strictEqual(res.status, 401);
     });
 
+    it('POST /api/items/verify-report-otp should reject unauthenticated request with 401', async () => {
+      const res = await fetch(`${baseUrl}/api/items/verify-report-otp`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: '24107068@apsit.edu.in',
+          otp: '123456',
+        }),
+      });
+      assert.strictEqual(res.status, 401);
+    });
+
     it('GET /api/items/user/my-reports should reject unauthenticated request with 401', async () => {
       const res = await fetch(`${baseUrl}/api/items/user/my-reports`);
       assert.strictEqual(res.status, 401);

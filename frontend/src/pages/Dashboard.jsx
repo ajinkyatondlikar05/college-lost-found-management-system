@@ -142,15 +142,24 @@ export default function Dashboard() {
     return () => clearInterval(timer);
   }, [resendCooldown]);
 
-  // Close user dropdown on outside click
+  // Close user dropdown on outside click or Escape key
   useEffect(() => {
     const handleClickOutside = (e) => {
       if (userMenuRef.current && !userMenuRef.current.contains(e.target)) {
         setUserMenuOpen(false);
       }
     };
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        setUserMenuOpen(false);
+      }
+    };
     document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
   }, []);
 
   // Update form defaults when user context loads
@@ -475,9 +484,14 @@ export default function Dashboard() {
             {/* User Dropdown */}
             <div className="ud-user-menu-wrapper" ref={userMenuRef}>
               <button
+                type="button"
                 className="ud-user-pill-btn"
-                onClick={() => setUserMenuOpen((prev) => !prev)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setUserMenuOpen((prev) => !prev);
+                }}
                 title={user?.email}
+                aria-expanded={userMenuOpen}
               >
                 <div className="ud-user-avatar">
                   {user?.name ? user.name.charAt(0).toUpperCase() : 'U'}
@@ -512,10 +526,12 @@ export default function Dashboard() {
                   </button>
                   <div className="ud-dropdown-divider" />
                   <button
+                    type="button"
                     className="ud-dropdown-action ud-logout-action"
-                    onClick={() => {
+                    onClick={(e) => {
+                      e.stopPropagation();
                       logoutUser();
-                      navigate('/user/login');
+                      navigate('/', { replace: true });
                     }}
                   >
                     <FiLogOut /> Logout

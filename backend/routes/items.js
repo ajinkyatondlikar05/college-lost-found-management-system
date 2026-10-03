@@ -136,6 +136,42 @@ router.post('/send-report-otp', protect, async (req, res) => {
   }
 });
 
+// @route   POST /api/items/verify-report-otp
+// @desc    Verify 6-digit OTP for lost or found item reporting
+// @access  Private
+router.post('/verify-report-otp', protect, async (req, res) => {
+  try {
+    const email = (req.body.email || req.user.email || '').trim().toLowerCase();
+    const otp = (req.body.otp || '').trim();
+
+    if (!email) {
+      return res.status(400).json({ message: 'Email address is required for OTP verification' });
+    }
+
+    if (!otp) {
+      return res.status(400).json({ message: 'Please enter the 6-digit OTP' });
+    }
+
+    const otpRecord = await Otp.findOne({
+      email,
+      otp,
+      purpose: { $in: ['report_lost_item', 'report_found_item', 'report_item'] },
+      expiresAt: { $gt: new Date() },
+    });
+
+    if (!otpRecord) {
+      return res.status(400).json({ message: 'Invalid or expired OTP code. Please request a new one.' });
+    }
+
+    res.json({
+      success: true,
+      message: 'Email verified successfully',
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
 // @route   POST /api/items
 // @desc    Create a new item report (with optional or required OTP verification for lost/found items)
 // @access  Private
@@ -145,6 +181,10 @@ router.post('/', protect, upload.single('image'), async (req, res) => {
 
     if (!title || !category) {
       return res.status(400).json({ message: 'Item name and category are required' });
+    }
+
+    if (req.user.role !== 'admin' && (!phone || !phone.trim())) {
+      return res.status(400).json({ message: 'Phone number is required' });
     }
 
     // If OTP is submitted or reporting as a student user, verify the OTP code

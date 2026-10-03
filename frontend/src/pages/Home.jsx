@@ -1,15 +1,52 @@
+import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
 import './Home.css';
 
 export default function Home() {
   const navigate = useNavigate();
+  const { isLoggingOut, setIsLoggingOut } = useAuth() || {};
+
+  useEffect(() => {
+    if (isLoggingOut && typeof setIsLoggingOut === 'function') {
+      setIsLoggingOut(false);
+    }
+  }, [isLoggingOut, setIsLoggingOut]);
 
   return (
     <div className="landing-page">
-      {/* Background subtle pattern */}
-      <div className="landing-bg-pattern"></div>
+      {/* College/Institute Top Header */}
+      <header className="institute-top-header" id="institute-header">
+        <div className="institute-header-container">
+          <img
+            src="/apsit-logo.png"
+            alt="A. P. Shah Institute of Technology Logo"
+            className="institute-logo"
+            id="institute-logo"
+          />
+          <div className="institute-text-block">
+            <div className="institute-line-trust">
+              Parshvanath Charitable Trust's
+            </div>
+            <h2 className="institute-line-name">
+              A. P. SHAH INSTITUTE OF TECHNOLOGY
+            </h2>
+            <div className="institute-line-affil">
+              (Approved by AICTE New Delhi &amp; Govt. of Maharashtra, Affiliated to University of Mumbai)
+            </div>
+            <div className="institute-line-minority">
+              (Religious Jain Minority)
+            </div>
+          </div>
+        </div>
+      </header>
 
-      <div className="landing-content animate-fadeInUp">
+      {/* Dark Portal Body */}
+      <div className="landing-portal-body">
+        {/* Background subtle pattern */}
+        <div className="landing-bg-pattern"></div>
+
+        <div className="landing-content animate-fadeInUp">
         {/* Header */}
         <div className="landing-header">
           <div className="landing-portal-icon" aria-hidden="true">
@@ -142,5 +179,6 @@ export default function Home() {
         </div>
       </div>
     </div>
+  </div>
   );
 }

@@ -462,7 +462,7 @@ export default function AdminDashboard() {
   const handleLogout = () => {
     if (typeof logout === 'function') logout();
     else if (typeof logoutUser === 'function') logoutUser();
-    navigate('/admin/login');
+    navigate('/', { replace: true });
   };
 
   // Export to CSV

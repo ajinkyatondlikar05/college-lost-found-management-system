@@ -11,6 +11,7 @@ import API, {
   deleteItem,
   getMyReports,
   sendReportOtp,
+  verifyReportOtp,
   getAllUsers,
   getAdminStats,
   updateUserRole,
@@ -63,6 +64,7 @@ describe('Frontend API Client Configuration & Endpoints', () => {
     assert.strictEqual(typeof deleteItem, 'function');
     assert.strictEqual(typeof getMyReports, 'function');
     assert.strictEqual(typeof sendReportOtp, 'function');
+    assert.strictEqual(typeof verifyReportOtp, 'function');
   });
 
   it('should export all user management API methods', () => {

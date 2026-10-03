@@ -6,6 +6,7 @@ const AuthContext = createContext(null);
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
 
   useEffect(() => {
     const token = localStorage.getItem('token');
@@ -20,17 +21,35 @@ export function AuthProvider({ children }) {
   }, []);
 
   const loginUser = (userData, token) => {
+    setIsLoggingOut(false);
     localStorage.setItem('token', token);
     setUser(userData);
   };
 
   const logoutUser = () => {
     localStorage.removeItem('token');
+    try {
+      localStorage.clear();
+      sessionStorage.clear();
+    } catch {
+      // In case storage access is restricted
+    }
+    setIsLoggingOut(true);
     setUser(null);
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, loginUser, logoutUser, logout: logoutUser }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        loading,
+        loginUser,
+        logoutUser,
+        logout: logoutUser,
+        isLoggingOut,
+        setIsLoggingOut,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );

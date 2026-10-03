@@ -64,6 +64,7 @@ export const updateItem = (id, data) => API.put(`/items/${id}`, data, {
 export const deleteItem = (id) => API.delete(`/items/${id}`);
 export const getMyReports = () => API.get('/items/user/my-reports');
 export const sendReportOtp = (data) => API.post('/items/send-report-otp', data);
+export const verifyReportOtp = (data) => API.post('/items/verify-report-otp', data);
 
 // Admin / Users
 export const getAllUsers = () => API.get('/users');
