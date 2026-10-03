@@ -45,21 +45,66 @@ describe('Claim & Report Found Item Workflow UI Rules', () => {
     if (!user || !item) return false;
     const reportedById = item.reportedBy?._id || item.reportedBy;
     const isOwner = reportedById && String(reportedById) === String(user._id);
-    const isResolved = item.status === 'Resolved' || item.status === 'resolved' || item.status === 'Claimed';
-    return item.type === 'lost' && !isOwner && !isResolved;
+    const isResolved = (item.status || '').toLowerCase() === 'resolved' || (item.status || '').toLowerCase() === 'claimed';
+    const activeClaim = item.claims?.find(
+      (c) => ['Contacted', 'pending', 'Pending Owner Confirmation', 'approved'].includes(c.status)
+    );
+    const hasActiveFinder = Boolean(item.foundBy || activeClaim);
+    return item.type === 'lost' && !isOwner && !hasActiveFinder && !isResolved;
+  };
+
+  const shouldShowFoundBySection = ({ item }) => {
+    if (!item) return false;
+    const activeClaim = item.claims?.find(
+      (c) => ['Contacted', 'pending', 'Pending Owner Confirmation', 'approved'].includes(c.status)
+    );
+    const hasActiveFinder = Boolean(item.foundBy || activeClaim);
+    const isResolved = (item.status || '').toLowerCase() === 'resolved';
+    return item.type === 'lost' && hasActiveFinder && !isResolved;
   };
 
   const shouldShowOwnerRecoverButton = ({ user, item }) => {
     if (!user || !item) return false;
     const reportedById = item.reportedBy?._id || item.reportedBy;
     const isOwner = (reportedById && String(reportedById) === String(user._id)) || user.role === 'admin';
-    const isResolved = item.status === 'Resolved' || item.status === 'resolved';
+    const isResolved = (item.status || '').toLowerCase() === 'resolved';
     return item.type === 'lost' && isOwner && !isResolved;
+  };
+
+  const getFinderVisibleDetails = ({ user, item }) => {
+    const activeClaim = item.claims?.find(
+      (c) => ['Contacted', 'pending', 'Pending Owner Confirmation', 'approved'].includes(c.status)
+    );
+    const reportedById = item.reportedBy?._id || item.reportedBy;
+    const isOwner = user && reportedById && String(reportedById) === String(user._id);
+    const isAdmin = user && user.role === 'admin';
+
+    const finderName = activeClaim?.fullName || item.foundBy?.name || 'A Student';
+    const foundDate = activeClaim?.createdAt || item.updatedAt;
+
+    if (isOwner || isAdmin) {
+      return {
+        finderName,
+        foundDate,
+        email: activeClaim?.email || item.foundBy?.email,
+        phone: activeClaim?.phone || item.foundBy?.phone,
+        message: activeClaim?.finderMessage,
+      };
+    }
+
+    return {
+      finderName,
+      foundDate,
+      email: undefined,
+      phone: undefined,
+      message: undefined,
+    };
   };
 
   describe('"I Found This Item" button visibility', () => {
     const owner = { _id: 'user_1', name: 'Ajinkya' };
     const finder = { _id: 'user_2', name: 'Priya' };
+    const thirdUser = { _id: 'user_3', name: 'Sameer' };
     const lostItem = {
       _id: 'item_1',
       title: 'Water Bottle',
@@ -72,7 +117,7 @@ describe('Claim & Report Found Item Workflow UI Rules', () => {
       assert.strictEqual(shouldShowFoundButton({ user: owner, item: lostItem }), false);
     });
 
-    it('should show "I Found This Item" to authenticated non-owner', () => {
+    it('should show "I Found This Item" to authenticated non-owner when no active claim exists', () => {
       assert.strictEqual(shouldShowFoundButton({ user: finder, item: lostItem }), true);
     });
 
@@ -83,6 +128,67 @@ describe('Claim & Report Found Item Workflow UI Rules', () => {
     it('should NOT show "I Found This Item" if item is already resolved', () => {
       const resolvedItem = { ...lostItem, status: 'Resolved' };
       assert.strictEqual(shouldShowFoundButton({ user: finder, item: resolvedItem }), false);
+    });
+
+    it('should NOT show "I Found This Item" to other users once an active claim/finder exists', () => {
+      const itemWithFinder = {
+        ...lostItem,
+        foundBy: { _id: 'user_2', name: 'Priya' },
+        claims: [{ status: 'Contacted', fullName: 'Priya Patel' }],
+      };
+      assert.strictEqual(shouldShowFoundButton({ user: thirdUser, item: itemWithFinder }), false);
+    });
+  });
+
+  describe('"FOUND BY" visual state and privacy', () => {
+    const owner = { _id: 'user_1', name: 'Ajinkya' };
+    const admin = { _id: 'admin_1', name: 'Admin', role: 'admin' };
+    const publicUser = { _id: 'user_3', name: 'Sameer' };
+    const itemWithFinder = {
+      _id: 'item_1',
+      title: 'Water Bottle',
+      type: 'lost',
+      status: 'Active',
+      reportedBy: { _id: 'user_1', name: 'Ajinkya' },
+      foundBy: { _id: 'user_2', name: 'Veddika Sheetty', phone: '9876543210', email: 'veddika@apsit.edu.in' },
+      claims: [{
+        status: 'Contacted',
+        fullName: 'Veddika Sheetty',
+        email: 'veddika@apsit.edu.in',
+        phone: '9876543210',
+        finderMessage: 'Found in Lab 402',
+        createdAt: new Date('2026-10-03T10:00:00Z'),
+      }],
+    };
+
+    it('should show FOUND BY section when active claim/finder exists', () => {
+      assert.strictEqual(shouldShowFoundBySection({ item: itemWithFinder }), true);
+    });
+
+    it('should NOT show FOUND BY section once item is marked Resolved', () => {
+      const resolved = { ...itemWithFinder, status: 'Resolved' };
+      assert.strictEqual(shouldShowFoundBySection({ item: resolved }), false);
+    });
+
+    it('should reveal finder phone/email to item owner', () => {
+      const details = getFinderVisibleDetails({ user: owner, item: itemWithFinder });
+      assert.strictEqual(details.finderName, 'Veddika Sheetty');
+      assert.strictEqual(details.phone, '9876543210');
+      assert.strictEqual(details.email, 'veddika@apsit.edu.in');
+    });
+
+    it('should reveal finder phone/email to admin', () => {
+      const details = getFinderVisibleDetails({ user: admin, item: itemWithFinder });
+      assert.strictEqual(details.finderName, 'Veddika Sheetty');
+      assert.strictEqual(details.phone, '9876543210');
+      assert.strictEqual(details.email, 'veddika@apsit.edu.in');
+    });
+
+    it('should hide finder phone/email from other students/public viewers', () => {
+      const details = getFinderVisibleDetails({ user: publicUser, item: itemWithFinder });
+      assert.strictEqual(details.finderName, 'Veddika Sheetty');
+      assert.strictEqual(details.phone, undefined);
+      assert.strictEqual(details.email, undefined);
     });
   });
 

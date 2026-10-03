@@ -1169,40 +1169,135 @@ export default function Dashboard() {
                   </div>
                 )}
 
-                {/* Action button */}
-                <div className="ud-details-action-wrap">
-                  {selectedItem.status === 'Resolved' ? (
-                    <span className="ud-status-badge ud-status-resolved" style={{ padding: '8px 16px', fontSize: '13px' }}>
-                      ✓ This item has been recovered and resolved.
-                    </span>
-                  ) : user && selectedItem.reportedBy && (selectedItem.reportedBy._id === user._id || selectedItem.reportedBy === user._id) ? (
-                    selectedItem.type === 'lost' ? (
-                      <button
-                        className="ud-btn-action-primary"
-                        style={{ background: '#10b981', borderColor: '#10b981' }}
-                        onClick={() => handleRecoverItem(selectedItem._id)}
-                      >
-                        I Got My Item Back
-                      </button>
-                    ) : null
-                  ) : user ? (
-                    selectedItem.type === 'lost' ? (
-                      <button
-                        className="ud-btn-action-primary"
-                        onClick={() => handleOpenClaimModal(selectedItem)}
-                      >
-                        I Found This Item
-                      </button>
-                    ) : (
-                      <button
-                        className="ud-btn-action-primary"
-                        onClick={() => handleOpenClaimModal(selectedItem)}
-                      >
-                        Claim This Item
-                      </button>
-                    )
-                  ) : null}
-                </div>
+                {/* Found By and Action Buttons */}
+                {(() => {
+                  const selReportedById = selectedItem.reportedBy?._id || selectedItem.reportedBy;
+                  const isActualOwner = Boolean(user && selReportedById && String(selReportedById) === String(user._id));
+                  const isOwner = isActualOwner || user?.role === 'admin';
+                  const isLost = selectedItem.type === 'lost';
+                  const isResolved = (selectedItem.status || '').toLowerCase() === 'resolved';
+
+                  const activeClaim = selectedItem.claims?.find(
+                    (c) => ['Contacted', 'pending', 'Pending Owner Confirmation', 'approved'].includes(c.status)
+                  );
+                  const hasActiveFinder = Boolean(selectedItem.foundBy || activeClaim);
+                  const finderName = activeClaim?.fullName || selectedItem.foundBy?.name || activeClaim?.finder?.name || 'A Student';
+                  const foundDate = activeClaim?.createdAt || selectedItem.updatedAt || selectedItem.createdAt;
+                  const formattedFoundDate = foundDate ? new Date(foundDate).toLocaleDateString('en-IN', {
+                    month: 'short',
+                    day: 'numeric',
+                    year: 'numeric',
+                  }) : 'Recently';
+
+                  return (
+                    <>
+                      {/* Active Finder / Found By State */}
+                      {hasActiveFinder && isLost && !isResolved && (
+                        <div
+                          className="ud-found-by-card"
+                          style={{
+                            marginTop: '1.25rem',
+                            marginBottom: '1rem',
+                            padding: '1.1rem',
+                            background: '#f0fdf4',
+                            border: '1.5px solid #86efac',
+                            borderRadius: '12px',
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px', flexWrap: 'wrap', gap: '6px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#059669', fontWeight: 800, fontSize: '0.92rem' }}>
+                              <FiCheckCircle style={{ fontSize: '1.2rem', strokeWidth: 2.5 }} /> FOUND BY
+                            </div>
+                            <span
+                              style={{
+                                background: '#dcfce7',
+                                color: '#15803d',
+                                border: '1px solid #bbf7d0',
+                                fontSize: '0.78rem',
+                                fontWeight: 700,
+                                padding: '2px 8px',
+                                borderRadius: '9999px',
+                              }}
+                            >
+                              Finder Reported
+                            </span>
+                          </div>
+                          <div style={{ fontSize: '1.15rem', fontWeight: 800, color: '#0f172a', marginBottom: '3px' }}>
+                            {finderName}
+                          </div>
+                          <div style={{ fontSize: '0.85rem', color: '#475569', marginBottom: (isActualOwner || user?.role === 'admin') ? '10px' : '0' }}>
+                            Found on: {formattedFoundDate}
+                          </div>
+
+                          {(isActualOwner || user?.role === 'admin') && (
+                            <div style={{ marginTop: '10px', paddingTop: '10px', borderTop: '1px dashed #cbd5e1' }}>
+                              {(activeClaim?.finderMessage || activeClaim?.additionalDetails) && (
+                                <div style={{ marginBottom: '6px', fontSize: '0.88rem', color: '#334155' }}>
+                                  <strong>Finder Message:</strong> "{activeClaim.finderMessage || activeClaim.additionalDetails}"
+                                </div>
+                              )}
+                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '14px', fontSize: '0.85rem', color: '#334155' }}>
+                                {(activeClaim?.email || selectedItem.foundBy?.email) && (
+                                  <div>
+                                    <strong>Email:</strong>{' '}
+                                    <a href={`mailto:${activeClaim?.email || selectedItem.foundBy?.email}`} style={{ color: '#2563eb', textDecoration: 'underline' }}>
+                                      {activeClaim?.email || selectedItem.foundBy?.email}
+                                    </a>
+                                  </div>
+                                )}
+                                {(activeClaim?.phone || selectedItem.foundBy?.phone) && (
+                                  <div>
+                                    <strong>Phone:</strong>{' '}
+                                    <a href={`tel:${activeClaim?.phone || selectedItem.foundBy?.phone}`} style={{ color: '#2563eb', textDecoration: 'underline' }}>
+                                      {activeClaim?.phone || selectedItem.foundBy?.phone}
+                                    </a>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Action button */}
+                      <div className="ud-details-action-wrap">
+                        {isResolved ? (
+                          <span className="ud-status-badge ud-status-resolved" style={{ padding: '8px 16px', fontSize: '13px' }}>
+                            ✓ This item has been recovered and resolved.
+                          </span>
+                        ) : isOwner ? (
+                          isLost ? (
+                            <button
+                              className="ud-btn-action-primary"
+                              style={{ background: '#10b981', borderColor: '#10b981' }}
+                              onClick={() => handleRecoverItem(selectedItem._id)}
+                            >
+                              I Got My Item Back
+                            </button>
+                          ) : null
+                        ) : user ? (
+                          isLost ? (
+                            !hasActiveFinder ? (
+                              <button
+                                className="ud-btn-action-primary"
+                                onClick={() => handleOpenClaimModal(selectedItem)}
+                              >
+                                I Found This Item
+                              </button>
+                            ) : null
+                          ) : (
+                            <button
+                              className="ud-btn-action-primary"
+                              onClick={() => handleOpenClaimModal(selectedItem)}
+                            >
+                              Claim This Item
+                            </button>
+                          )
+                        ) : null}
+                      </div>
+                    </>
+                  );
+                })()}
               </div>
             </div>
           </div>

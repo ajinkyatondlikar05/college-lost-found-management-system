@@ -824,21 +824,66 @@ export default function MyReports() {
                             )}
                           </>
                         )}
-                        {selectedItem.foundBy && (
+                        {/* Active Finder / Found By State */}
+                        {(selectedItem.foundBy || selectedItem.latestClaim) &&
+                          (selectedItem.type || '').toLowerCase() === 'lost' &&
+                          (selectedItem.status || '').toLowerCase() !== 'resolved' && (
+                            <div
+                              style={{
+                                margin: '14px 0',
+                                padding: '14px',
+                                background: '#f0fdf4',
+                                border: '1.5px solid #86efac',
+                                borderRadius: '10px',
+                              }}
+                            >
+                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#059669', fontWeight: 800, fontSize: '0.92rem' }}>
+                                  <FiCheckCircle style={{ fontSize: '1.2rem', strokeWidth: 2.5 }} /> FOUND BY
+                                </div>
+                                <span style={{ background: '#dcfce7', color: '#15803d', border: '1px solid #bbf7d0', fontSize: '0.75rem', fontWeight: 700, padding: '2px 8px', borderRadius: '9999px' }}>
+                                  Finder Reported
+                                </span>
+                              </div>
+                              <div style={{ fontSize: '1.15rem', fontWeight: 800, color: '#0f172a', marginBottom: '2px' }}>
+                                {selectedItem.latestClaim?.fullName || (typeof selectedItem.foundBy === 'object' ? selectedItem.foundBy?.name : selectedItem.foundBy) || 'A Student'}
+                              </div>
+                              <div style={{ fontSize: '0.85rem', color: '#64748b', marginBottom: '8px' }}>
+                                Found on: {formatDateTime(selectedItem.latestClaim?.createdAt || selectedItem.updatedAt)}
+                              </div>
+                              {(selectedItem.latestClaim?.finderMessage || selectedItem.latestClaim?.additionalDetails) && (
+                                <div style={{ marginBottom: '6px', fontSize: '0.88rem', color: '#334155' }}>
+                                  <strong>Finder Message:</strong> "{selectedItem.latestClaim.finderMessage || selectedItem.latestClaim.additionalDetails}"
+                                </div>
+                              )}
+                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '14px', fontSize: '0.85rem', color: '#334155' }}>
+                                {(selectedItem.latestClaim?.email || selectedItem.foundBy?.email) && (
+                                  <div>
+                                    <strong>Email:</strong>{' '}
+                                    <a href={`mailto:${selectedItem.latestClaim?.email || selectedItem.foundBy?.email}`} style={{ color: '#2563eb', textDecoration: 'underline' }}>
+                                      {selectedItem.latestClaim?.email || selectedItem.foundBy?.email}
+                                    </a>
+                                  </div>
+                                )}
+                                {(selectedItem.latestClaim?.phone || selectedItem.foundBy?.phone) && (
+                                  <div>
+                                    <strong>Phone:</strong>{' '}
+                                    <a href={`tel:${selectedItem.latestClaim?.phone || selectedItem.foundBy?.phone}`} style={{ color: '#2563eb', textDecoration: 'underline' }}>
+                                      {selectedItem.latestClaim?.phone || selectedItem.foundBy?.phone}
+                                    </a>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          )}
+
+                        {selectedItem.foundBy && (selectedItem.status === 'Resolved' || selectedItem.status === 'resolved') && (
                           <div className="detail-row">
                             <span className="row-key">Found By:</span>
                             <span className="row-val">
                               {typeof selectedItem.foundBy === 'object'
                                 ? `${selectedItem.foundBy.name} (${selectedItem.foundBy.email || ''})`
                                 : selectedItem.foundBy}
-                            </span>
-                          </div>
-                        )}
-                        {selectedItem.latestClaim?.finderMessage && (
-                          <div className="detail-row">
-                            <span className="row-key">Finder Message:</span>
-                            <span className="row-val">
-                              {selectedItem.latestClaim.finderMessage}
                             </span>
                           </div>
                         )}

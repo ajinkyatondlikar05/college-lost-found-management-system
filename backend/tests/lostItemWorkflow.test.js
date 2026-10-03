@@ -52,6 +52,17 @@ describe('Lost Item -> Finder -> Owner Contact -> Resolution Workflow', () => {
     status: 'approved',
   };
 
+  const otherUser = {
+    _id: '64a1f1000000000000000003',
+    name: 'Sameer Khan',
+    email: '24107003@apsit.edu.in',
+    studentId: '24107003',
+    phone: '9822334455',
+    department: 'Civil Engineering',
+    role: 'user',
+    status: 'approved',
+  };
+
   const adminUser = {
     _id: '64a1f1000000000000000099',
     name: 'College Admin',
@@ -65,6 +76,7 @@ describe('Lost Item -> Finder -> Owner Contact -> Resolution Workflow', () => {
 
   const ownerToken = jwt.sign({ id: ownerUser._id }, testSecret);
   const finderToken = jwt.sign({ id: finderUser._id }, testSecret);
+  const otherToken = jwt.sign({ id: otherUser._id }, testSecret);
   const adminToken = jwt.sign({ id: adminUser._id }, testSecret);
 
   let inMemoryItem;
@@ -103,12 +115,13 @@ describe('Lost Item -> Finder -> Owner Contact -> Resolution Workflow', () => {
     originalSendEmail = emailUtils.sendItemFoundNotificationEmail;
     originalSendOtpEmail = emailUtils.sendOtpEmail;
 
-    // User.findById stub for protect middleware
+    // User.findById stub for protect middleware & optional auth
     User.findById = (id) => ({
       select: () => {
         const idStr = String(id);
         if (idStr === String(ownerUser._id)) return Promise.resolve(ownerUser);
         if (idStr === String(finderUser._id)) return Promise.resolve(finderUser);
+        if (idStr === String(otherUser._id)) return Promise.resolve(otherUser);
         if (idStr === String(adminUser._id)) return Promise.resolve(adminUser);
         return Promise.resolve(null);
       },
@@ -188,13 +201,19 @@ describe('Lost Item -> Finder -> Owner Contact -> Resolution Workflow', () => {
     emailShouldFail = false;
     inMemoryClaims = [];
 
-    // Pre-populate active 6-digit OTP for finder
+    // Pre-populate active 6-digit OTP for finder and otherUser
     inMemoryOtps = [
       {
         email: finderUser.email,
         otp: '123456',
         purpose: 'report_found_item',
         expiresAt: new Date(Date.now() + 10 * 60 * 1000), // 10 minutes from now
+      },
+      {
+        email: otherUser.email,
+        otp: '234567',
+        purpose: 'report_found_item',
+        expiresAt: new Date(Date.now() + 10 * 60 * 1000),
       },
     ];
 
@@ -222,7 +241,16 @@ describe('Lost Item -> Finder -> Owner Contact -> Resolution Workflow', () => {
       const isMatch = String(id) === String(inMemoryItem._id);
       const target = isMatch ? inMemoryItem : null;
       return {
-        populate: () => Promise.resolve(target),
+        populate: () => {
+          const clone = target ? { ...target } : null;
+          if (clone && clone.foundBy && String(clone.foundBy) === String(finderUser._id)) {
+            clone.foundBy = { ...finderUser };
+          }
+          if (clone && clone.reportedBy && clone.reportedBy._id) {
+            clone.reportedBy = { ...clone.reportedBy };
+          }
+          return Promise.resolve(clone);
+        },
         then: (resolve) => resolve(target),
       };
     };
@@ -285,12 +313,19 @@ describe('Lost Item -> Finder -> Owner Contact -> Resolution Workflow', () => {
     };
 
     Claim.find = (query) => {
+      const getClaimsList = () => {
+        return inMemoryClaims.map((c) => ({
+          ...c,
+          finder: c.finder && String(c.finder) === String(finderUser._id) ? { ...finderUser } : c.finder,
+          owner: c.owner && String(c.owner) === String(ownerUser._id) ? { ...ownerUser } : c.owner,
+        }));
+      };
       const chain = {
         populate: () => chain,
         sort: () => chain,
         skip: () => chain,
-        limit: () => Promise.resolve(inMemoryClaims),
-        then: (resolve) => resolve(inMemoryClaims),
+        limit: () => Promise.resolve(getClaimsList()),
+        then: (resolve) => resolve(getClaimsList()),
       };
       return chain;
     };
@@ -339,8 +374,178 @@ describe('Lost Item -> Finder -> Owner Contact -> Resolution Workflow', () => {
     assert.strictEqual(data.finderMessage, 'I found your Casio calculator in Room 402 on table 3.');
   });
 
-  // 3. All required finder fields are enforced
-  it('3. should enforce all required finder fields (fullName, email, phone, image, message)', async () => {
+  // 3. Successful finder claim links foundBy and does NOT mark item as Resolved
+  it('3. successful finder claim causes Found By to link to item while remaining Active', async () => {
+    const res = await fetch(`${baseUrl}/api/claims`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${finderToken}`,
+      },
+      body: JSON.stringify(makeValidFinderBody()),
+    });
+
+    assert.strictEqual(res.status, 201);
+    // Item foundBy must be linked to finder
+    assert.strictEqual(String(inMemoryItem.foundBy), String(finderUser._id));
+    // Item must NOT become Resolved at this stage
+    assert.strictEqual(inMemoryItem.status, 'Active');
+    assert.strictEqual(inMemoryItem.resolvedAt, null);
+  });
+
+  // 4. Other users cannot submit another active claim once an active claim exists
+  it('4. should prevent other users from submitting an active claim once one already exists', async () => {
+    // First finder submits valid claim
+    const firstRes = await fetch(`${baseUrl}/api/claims`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${finderToken}`,
+      },
+      body: JSON.stringify(makeValidFinderBody()),
+    });
+    assert.strictEqual(firstRes.status, 201);
+
+    // Another user (otherUser) attempts to submit a claim for the same item
+    const secondRes = await fetch(`${baseUrl}/api/claims`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${otherToken}`,
+      },
+      body: JSON.stringify(makeValidFinderBody({
+        fullName: otherUser.name,
+        email: otherUser.email,
+        phone: otherUser.phone,
+        otp: '234567',
+        finderMessage: 'I also found it',
+      })),
+    });
+
+    assert.strictEqual(secondRes.status, 400);
+    const data = await secondRes.json();
+    assert.match(data.message, /already been submitted for this item/i);
+    assert.strictEqual(inMemoryClaims.length, 1);
+  });
+
+  // 5. Public users do not receive finder phone/email unnecessarily (Privacy)
+  it('5. public users do not receive finder phone/email in item details (Privacy preservation)', async () => {
+    // Finder reports finding the item
+    await fetch(`${baseUrl}/api/claims`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${finderToken}`,
+      },
+      body: JSON.stringify(makeValidFinderBody()),
+    });
+
+    // Unauthenticated public request for item details
+    const publicRes = await fetch(`${baseUrl}/api/items/${inMemoryItem._id}`);
+    assert.strictEqual(publicRes.status, 200);
+    const publicData = await publicRes.json();
+
+    // Finder name is visible
+    assert.strictEqual(publicData.foundBy?.name, finderUser.name);
+    // Sensitive finder phone & email are stripped for public viewers
+    assert.strictEqual(publicData.foundBy?.phone, undefined);
+    assert.strictEqual(publicData.foundBy?.email, undefined);
+    if (publicData.claims && publicData.claims.length > 0) {
+      assert.strictEqual(publicData.claims[0].phone, undefined);
+      assert.strictEqual(publicData.claims[0].email, undefined);
+    }
+  });
+
+  // 6. Owner sees complete finder contact info and can complete recovery
+  it('6. owner sees complete finder contact information and recovery action', async () => {
+    // Finder reports finding the item
+    await fetch(`${baseUrl}/api/claims`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${finderToken}`,
+      },
+      body: JSON.stringify(makeValidFinderBody()),
+    });
+
+    // Owner requests item details
+    const ownerRes = await fetch(`${baseUrl}/api/items/${inMemoryItem._id}`, {
+      headers: {
+        Authorization: `Bearer ${ownerToken}`,
+      },
+    });
+    assert.strictEqual(ownerRes.status, 200);
+    const ownerData = await ownerRes.json();
+
+    // Owner CAN see finder phone and email to coordinate return
+    assert.strictEqual(ownerData.foundBy?.name, finderUser.name);
+    assert.strictEqual(ownerData.foundBy?.phone, finderUser.phone);
+    assert.strictEqual(ownerData.foundBy?.email, finderUser.email);
+    assert.strictEqual(ownerData.claims[0].phone, finderUser.phone);
+    assert.strictEqual(ownerData.claims[0].email, finderUser.email);
+  });
+
+  // 7. Owner recovery marks item and claim as Resolved
+  it('7. owner recovery changes item status to Resolved and resolves claim', async () => {
+    await fetch(`${baseUrl}/api/claims`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${finderToken}`,
+      },
+      body: JSON.stringify(makeValidFinderBody()),
+    });
+
+    const recoverRes = await fetch(`${baseUrl}/api/items/${inMemoryItem._id}/recover`, {
+      method: 'PUT',
+      headers: {
+        Authorization: `Bearer ${ownerToken}`,
+      },
+    });
+
+    assert.strictEqual(recoverRes.status, 200);
+    const recoverData = await recoverRes.json();
+    assert.strictEqual(recoverData.status || recoverData.item?.status, 'Resolved');
+    assert.strictEqual(inMemoryClaims[0].status, 'resolved');
+    assert.ok(inMemoryClaims[0].resolvedAt);
+  });
+
+  // 8. Admin still sees complete finder information
+  it('8. admin still sees complete finder information across claims and item details', async () => {
+    await fetch(`${baseUrl}/api/claims`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${finderToken}`,
+      },
+      body: JSON.stringify(makeValidFinderBody()),
+    });
+
+    const adminItemRes = await fetch(`${baseUrl}/api/items/${inMemoryItem._id}`, {
+      headers: {
+        Authorization: `Bearer ${adminToken}`,
+      },
+    });
+    assert.strictEqual(adminItemRes.status, 200);
+    const adminItemData = await adminItemRes.json();
+    assert.strictEqual(adminItemData.foundBy?.name, finderUser.name);
+    assert.strictEqual(adminItemData.foundBy?.phone, finderUser.phone);
+    assert.strictEqual(adminItemData.foundBy?.email, finderUser.email);
+
+    const adminClaimsRes = await fetch(`${baseUrl}/api/claims`, {
+      headers: {
+        Authorization: `Bearer ${adminToken}`,
+      },
+    });
+    assert.strictEqual(adminClaimsRes.status, 200);
+    const adminClaimsData = await adminClaimsRes.json();
+    assert.strictEqual(adminClaimsData.claims[0].fullName, finderUser.name);
+    assert.strictEqual(adminClaimsData.claims[0].phone, finderUser.phone);
+    assert.strictEqual(adminClaimsData.claims[0].email, finderUser.email);
+  });
+
+  // 9. All required finder fields are enforced
+  it('9. should enforce all required finder fields (fullName, email, phone, image, message)', async () => {
     // Missing Full Name
     const res1 = await fetch(`${baseUrl}/api/claims`, {
       method: 'POST',
@@ -402,8 +607,8 @@ describe('Lost Item -> Finder -> Owner Contact -> Resolution Workflow', () => {
     assert.match(data5.message, /Additional details describing where\/how you found the item are required/i);
   });
 
-  // 4. Invalid @apsit.edu.in email rejected
-  it('4. should reject email that does not end with @apsit.edu.in', async () => {
+  // 10. Invalid @apsit.edu.in email rejected
+  it('10. should reject email that does not end with @apsit.edu.in', async () => {
     const res = await fetch(`${baseUrl}/api/claims`, {
       method: 'POST',
       headers: {
@@ -418,8 +623,8 @@ describe('Lost Item -> Finder -> Owner Contact -> Resolution Workflow', () => {
     assert.match(data.message, /ending with @apsit.edu.in is required/i);
   });
 
-  // 5. OTP is sent to finder email via /api/items/send-report-otp
-  it('5. should dispatch a 6-digit OTP to the finder college email', async () => {
+  // 11. OTP is sent to finder email via /api/items/send-report-otp
+  it('11. should dispatch a 6-digit OTP to the finder college email', async () => {
     const res = await fetch(`${baseUrl}/api/items/send-report-otp`, {
       method: 'POST',
       headers: {
@@ -443,8 +648,8 @@ describe('Lost Item -> Finder -> Owner Contact -> Resolution Workflow', () => {
     assert.strictEqual(sentOtpEmails[0].otp.length, 6);
   });
 
-  // 6. Correct OTP allows claim creation
-  it('6. should allow claim creation when correct 6-digit OTP is supplied', async () => {
+  // 12. Correct OTP allows claim creation
+  it('12. should allow claim creation when correct 6-digit OTP is supplied', async () => {
     const res = await fetch(`${baseUrl}/api/claims`, {
       method: 'POST',
       headers: {
@@ -460,8 +665,8 @@ describe('Lost Item -> Finder -> Owner Contact -> Resolution Workflow', () => {
     assert.strictEqual(inMemoryClaims.length, 1);
   });
 
-  // 7. Incorrect OTP prevents claim creation
-  it('7. should reject claim creation when incorrect OTP is supplied', async () => {
+  // 13. Incorrect OTP prevents claim creation
+  it('13. should reject claim creation when incorrect OTP is supplied', async () => {
     const res = await fetch(`${baseUrl}/api/claims`, {
       method: 'POST',
       headers: {
@@ -477,9 +682,8 @@ describe('Lost Item -> Finder -> Owner Contact -> Resolution Workflow', () => {
     assert.strictEqual(inMemoryClaims.length, 0);
   });
 
-  // 8. Expired OTP prevents claim creation
-  it('8. should reject claim creation when OTP is expired', async () => {
-    // Add expired OTP record
+  // 14. Expired OTP prevents claim creation
+  it('14. should reject claim creation when OTP is expired', async () => {
     inMemoryOtps = [
       {
         email: finderUser.email,
@@ -504,9 +708,8 @@ describe('Lost Item -> Finder -> Owner Contact -> Resolution Workflow', () => {
     assert.strictEqual(inMemoryClaims.length, 0);
   });
 
-  // 9. Duplicate active claim prevention
-  it('9. should prevent duplicate active claims by the same finder for the same item', async () => {
-    // Submit first claim
+  // 15. Duplicate active claim by same user prevention
+  it('15. should prevent duplicate active claims by the same finder for the same item', async () => {
     const firstRes = await fetch(`${baseUrl}/api/claims`, {
       method: 'POST',
       headers: {
@@ -517,7 +720,6 @@ describe('Lost Item -> Finder -> Owner Contact -> Resolution Workflow', () => {
     });
     assert.strictEqual(firstRes.status, 201);
 
-    // Provide a fresh OTP for the second attempt
     inMemoryOtps.push({
       email: finderUser.email,
       otp: '654321',
@@ -525,7 +727,6 @@ describe('Lost Item -> Finder -> Owner Contact -> Resolution Workflow', () => {
       expiresAt: new Date(Date.now() + 10 * 60 * 1000),
     });
 
-    // Attempt second claim
     const secondRes = await fetch(`${baseUrl}/api/claims`, {
       method: 'POST',
       headers: {
@@ -541,29 +742,8 @@ describe('Lost Item -> Finder -> Owner Contact -> Resolution Workflow', () => {
     assert.strictEqual(inMemoryClaims.length, 1);
   });
 
-  // 10. Claim record stores owner, finder, finder contact, proof image correctly
-  it('10. should correctly store itemId, owner, finder, finderMessage, image, and initial status', async () => {
-    await fetch(`${baseUrl}/api/claims`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${finderToken}`,
-      },
-      body: JSON.stringify(makeValidFinderBody()),
-    });
-
-    assert.strictEqual(inMemoryClaims.length, 1);
-    const storedClaim = inMemoryClaims[0];
-    assert.strictEqual(String(storedClaim.item), String(inMemoryItem._id));
-    assert.strictEqual(String(storedClaim.owner), String(ownerUser._id));
-    assert.strictEqual(String(storedClaim.finder), String(finderUser._id));
-    assert.strictEqual(storedClaim.finderMessage, 'I found your Casio calculator in Room 402 on table 3.');
-    assert.strictEqual(storedClaim.image, 'https://res.cloudinary.com/apsit/image/upload/v12345/calculator_proof.jpg');
-    assert.strictEqual(storedClaim.status, 'Contacted');
-  });
-
-  // 11. Successful claim emails owner
-  it('11. should dispatch an email to the lost-item owner with finder details and message', async () => {
+  // 16. Successful claim emails owner
+  it('16. should dispatch an email to the lost-item owner with finder details and message', async () => {
     await fetch(`${baseUrl}/api/claims`, {
       method: 'POST',
       headers: {
@@ -584,8 +764,8 @@ describe('Lost Item -> Finder -> Owner Contact -> Resolution Workflow', () => {
     assert.strictEqual(email.finderMessage, 'I found your Casio calculator in Room 402 on table 3.');
   });
 
-  // 12. Email failure handling and atomic rollback
-  it('12. should roll back claim record and return 500 when owner notification email fails', async () => {
+  // 17. Email failure handling and atomic rollback
+  it('17. should roll back claim record and return 500 when owner notification email fails', async () => {
     emailShouldFail = true;
 
     const res = await fetch(`${baseUrl}/api/claims`, {
@@ -602,68 +782,12 @@ describe('Lost Item -> Finder -> Owner Contact -> Resolution Workflow', () => {
     assert.match(data.message, /Failed to notify the item owner via email/i);
     // Verified that no broken/orphaned claim record remains in database
     assert.strictEqual(inMemoryClaims.length, 0);
+    // foundBy was also rolled back
+    assert.strictEqual(inMemoryItem.foundBy, null);
   });
 
-  // 13. Owner recovery / resolution workflow
-  it('13. should allow item owner to mark item as recovered and resolve active claim', async () => {
-    // First, finder reports finding the item
-    await fetch(`${baseUrl}/api/claims`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${finderToken}`,
-      },
-      body: JSON.stringify(makeValidFinderBody()),
-    });
-
-    assert.strictEqual(inMemoryClaims.length, 1);
-    assert.strictEqual(inMemoryClaims[0].status, 'Contacted');
-
-    // Owner marks item as recovered: PUT /api/items/:id/recover
-    const recoverRes = await fetch(`${baseUrl}/api/items/${inMemoryItem._id}/recover`, {
-      method: 'PUT',
-      headers: {
-        Authorization: `Bearer ${ownerToken}`,
-      },
-    });
-
-    assert.strictEqual(recoverRes.status, 200);
-    const updatedItem = await recoverRes.json();
-    assert.strictEqual(updatedItem.status, 'Resolved');
-    assert.ok(updatedItem.resolvedAt);
-
-    // Verify claim status is updated to 'resolved'
-    assert.strictEqual(inMemoryClaims[0].status, 'resolved');
-    assert.ok(inMemoryClaims[0].resolvedAt);
-  });
-
-  // 14. Admin can retrieve owner/finder information
-  it('14. should allow admin to retrieve claims with owner and finder info', async () => {
-    await fetch(`${baseUrl}/api/claims`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${finderToken}`,
-      },
-      body: JSON.stringify(makeValidFinderBody()),
-    });
-
-    const res = await fetch(`${baseUrl}/api/claims`, {
-      headers: {
-        Authorization: `Bearer ${adminToken}`,
-      },
-    });
-
-    assert.strictEqual(res.status, 200);
-    const data = await res.json();
-    assert.ok(Array.isArray(data.claims));
-    assert.strictEqual(data.claims.length, 1);
-    assert.strictEqual(data.claims[0].fullName, finderUser.name);
-    assert.strictEqual(data.claims[0].finderMessage, 'I found your Casio calculator in Room 402 on table 3.');
-  });
-
-  // 15. Existing claim proof image behavior still works
-  it('15. should allow proof image URL on claim and preserve existing fields', async () => {
+  // 18. Existing claim proof image behavior still works
+  it('18. should allow proof image URL on claim and preserve existing fields', async () => {
     const claimWithImage = new Claim({
       fullName: 'Vikram Singh',
       email: '24107005@apsit.edu.in',

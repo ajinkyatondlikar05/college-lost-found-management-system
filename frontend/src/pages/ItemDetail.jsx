@@ -301,8 +301,24 @@ export default function ItemDetail() {
   if (loading) return <div className="loading-page"><div className="spinner"></div></div>;
   if (!item) return null;
 
-  const isOwner = user && item.reportedBy && (item.reportedBy._id === user._id || user.role === 'admin');
+  const reportedById = item.reportedBy?._id || item.reportedBy;
+  const isActualOwner = Boolean(user && reportedById && String(reportedById) === String(user._id));
+  const isOwner = isActualOwner || user?.role === 'admin';
   const isLost = item.type === 'lost';
+  const isResolved = (item.status || '').toLowerCase() === 'resolved';
+
+  // Check active finder report / claim
+  const activeClaim = item.claims?.find(
+    (c) => ['Contacted', 'pending', 'Pending Owner Confirmation', 'approved'].includes(c.status)
+  );
+  const hasActiveFinder = Boolean(item.foundBy || activeClaim);
+  const finderName = activeClaim?.fullName || item.foundBy?.name || activeClaim?.finder?.name || 'A Student';
+  const foundDate = activeClaim?.createdAt || item.updatedAt || item.createdAt;
+  const formattedFoundDate = foundDate ? new Date(foundDate).toLocaleDateString('en-IN', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  }) : 'Recently';
   const icon = categoryIcons[item.category] || '📦';
 
   return (
@@ -399,10 +415,80 @@ export default function ItemDetail() {
               <p>{item.description}</p>
             </div>
 
+            {/* Active Finder / Found By State (Visible before owner recovery) */}
+            {hasActiveFinder && isLost && !isResolved && (
+              <div
+                className="ud-found-by-card"
+                style={{
+                  marginTop: '1.5rem',
+                  padding: '1.25rem',
+                  background: '#f0fdf4',
+                  border: '1.5px solid #86efac',
+                  borderRadius: '12px',
+                  boxShadow: '0 2px 8px rgba(16, 185, 129, 0.08)',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px', flexWrap: 'wrap', gap: '8px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#059669', fontWeight: 800, fontSize: '0.95rem', letterSpacing: '0.5px' }}>
+                    <FiCheckCircle style={{ fontSize: '1.3rem', strokeWidth: 2.5 }} /> FOUND BY
+                  </div>
+                  <span
+                    style={{
+                      background: '#dcfce7',
+                      color: '#15803d',
+                      border: '1px solid #bbf7d0',
+                      fontSize: '0.8rem',
+                      fontWeight: 700,
+                      padding: '3px 10px',
+                      borderRadius: '9999px',
+                    }}
+                  >
+                    Finder Reported
+                  </span>
+                </div>
+
+                <div style={{ fontSize: '1.2rem', fontWeight: 800, color: '#0f172a', marginBottom: '4px' }}>
+                  {finderName}
+                </div>
+                <div style={{ fontSize: '0.88rem', color: '#475569', marginBottom: (isActualOwner || user?.role === 'admin') ? '12px' : '0' }}>
+                  Found on: {formattedFoundDate}
+                </div>
+
+                {/* Finder Message & Contact Info - visible ONLY to the lost-item owner or admin */}
+                {(isActualOwner || user?.role === 'admin') && (
+                  <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: '1px dashed #cbd5e1' }}>
+                    {(activeClaim?.finderMessage || activeClaim?.additionalDetails) && (
+                      <div style={{ marginBottom: '8px', fontSize: '0.9rem', color: '#334155' }}>
+                        <strong>Finder Message:</strong> "{activeClaim.finderMessage || activeClaim.additionalDetails}"
+                      </div>
+                    )}
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px', fontSize: '0.88rem', color: '#334155' }}>
+                      {(activeClaim?.email || item.foundBy?.email) && (
+                        <div>
+                          <strong>Email:</strong>{' '}
+                          <a href={`mailto:${activeClaim?.email || item.foundBy?.email}`} style={{ color: '#2563eb', textDecoration: 'underline' }}>
+                            {activeClaim?.email || item.foundBy?.email}
+                          </a>
+                        </div>
+                      )}
+                      {(activeClaim?.phone || item.foundBy?.phone) && (
+                        <div>
+                          <strong>Phone:</strong>{' '}
+                          <a href={`tel:${activeClaim?.phone || item.foundBy?.phone}`} style={{ color: '#2563eb', textDecoration: 'underline' }}>
+                            {activeClaim?.phone || item.foundBy?.phone}
+                          </a>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Owner Actions */}
             {isOwner && (
-              <div className="detail-actions">
-                {isLost && item.status !== 'Resolved' && (
+              <div className="detail-actions" style={{ marginTop: hasActiveFinder && isLost ? '1rem' : '1.5rem' }}>
+                {isLost && !isResolved && (
                   <div style={{ marginBottom: '1rem' }}>
                     <button
                       className="btn btn-primary"
@@ -420,9 +506,9 @@ export default function ItemDetail() {
                     {['active', 'resolved', 'claimed'].map((s) => (
                       <button
                         key={s}
-                        className={`status-btn status-btn-${s} ${item.status === s ? 'active' : ''}`}
+                        className={`status-btn status-btn-${s} ${(item.status || '').toLowerCase() === s ? 'active' : ''}`}
                         onClick={() => handleStatusChange(s)}
-                        disabled={statusLoading || item.status === s}
+                        disabled={statusLoading || (item.status || '').toLowerCase() === s}
                       >
                         {s}
                       </button>
@@ -440,8 +526,8 @@ export default function ItemDetail() {
               </div>
             )}
 
-            {/* Non-owner Finder / Claim Action */}
-            {user && !isOwner && item.status !== 'Resolved' && item.status !== 'Claimed' && (
+            {/* Non-owner Finder / Claim Action: Only shown if NO active finder claim exists */}
+            {user && !isActualOwner && !hasActiveFinder && !isResolved && item.status !== 'Claimed' && (
               <div className="detail-actions" style={{ marginTop: '1.5rem' }}>
                 <button
                   className="btn btn-primary"
@@ -453,7 +539,7 @@ export default function ItemDetail() {
               </div>
             )}
 
-            {item.status === 'Resolved' && (
+            {isResolved && (
               <div style={{ marginTop: '1.5rem', padding: '0.85rem 1rem', background: 'rgba(16, 185, 129, 0.1)', color: '#10b981', borderRadius: '8px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <FiCheckCircle /> This item has been recovered and resolved.
               </div>

@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+const jwt = require('jsonwebtoken');
 const Item = require('../models/Item');
 const User = require('../models/User');
 const Otp = require('../models/Otp');
@@ -53,7 +54,7 @@ router.get('/', async (req, res) => {
     const items = await Item.find(filter)
       .populate([
         { path: 'reportedBy', select: 'name email department phone studentId' },
-        { path: 'foundBy', select: 'name email department phone studentId' },
+        { path: 'foundBy', select: 'name' },
         { path: 'claimedBy', select: 'name email department phone studentId' },
       ])
       .sort(sortObj)
@@ -89,8 +90,59 @@ router.get('/:id', async (req, res) => {
       .populate('owner', 'name email phone studentId department')
       .sort({ createdAt: -1 });
 
-    const itemObj = item.toObject();
+    const itemObj = item.toObject ? item.toObject() : { ...item };
     itemObj.claims = claims;
+
+    // Check requester credentials from optional Bearer token
+    let requester = null;
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      try {
+        const token = authHeader.split(' ')[1];
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        if (decoded && decoded.id) {
+          requester = await User.findById(decoded.id).select('name email role');
+        }
+      } catch (tokenErr) {
+        // Unauthenticated or expired token
+      }
+    }
+
+    const ownerId = item.reportedBy?._id ? item.reportedBy._id.toString() : (item.reportedBy ? item.reportedBy.toString() : '');
+    const isOwner = requester && ownerId && (ownerId === requester._id.toString());
+    const isAdmin = requester && requester.role === 'admin';
+
+    // PRIVACY FILTER:
+    // Finder phone/email must remain visible ONLY to the lost-item owner and authorized admin.
+    if (!isOwner && !isAdmin) {
+      if (itemObj.foundBy && typeof itemObj.foundBy === 'object') {
+        itemObj.foundBy = {
+          _id: itemObj.foundBy._id,
+          name: itemObj.foundBy.name,
+        };
+      }
+      if (itemObj.claims && Array.isArray(itemObj.claims)) {
+        itemObj.claims = itemObj.claims.map((claim) => {
+          const c = claim.toObject ? claim.toObject() : { ...claim };
+          const isFinder = requester && c.finder && (
+            (c.finder._id && c.finder._id.toString() === requester._id.toString()) ||
+            c.finder.toString() === requester._id.toString()
+          );
+          if (!isFinder) {
+            delete c.phone;
+            delete c.email;
+            if (c.finder && typeof c.finder === 'object') {
+              c.finder = {
+                _id: c.finder._id,
+                name: c.finder.name,
+              };
+            }
+          }
+          return c;
+        });
+      }
+    }
+
     res.json(itemObj);
   } catch (error) {
     res.status(500).json({ message: error.message });

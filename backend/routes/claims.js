@@ -157,14 +157,18 @@ router.post('/', protect, upload.single('image'), async (req, res) => {
         return res.status(400).json({ message: 'You cannot claim or report finding your own reported item.' });
       }
 
-      // Prevent duplicate active claims by the same finder for the same item
+      // Prevent duplicate active claims by any user for the same item
       const existingClaim = await Claim.findOne({
         item: item._id,
-        finder: req.user._id,
         status: { $in: ['pending', 'Contacted', 'Pending Owner Confirmation', 'approved'] },
       });
       if (existingClaim) {
-        return res.status(400).json({ message: 'You have already submitted an active claim or finder report for this item.' });
+        const isSelf = existingClaim.finder && existingClaim.finder.toString() === req.user._id.toString();
+        return res.status(400).json({
+          message: isSelf
+            ? 'You have already submitted an active claim or finder report for this item.'
+            : 'An active finder claim has already been submitted for this item.',
+        });
       }
     }
 
@@ -210,6 +214,11 @@ router.post('/', protect, upload.single('image'), async (req, res) => {
       finder: req.user._id,
     });
 
+    // Link finder to item without changing item status to Resolved
+    if (isLostItemFound && item) {
+      await Item.findByIdAndUpdate(item._id, { foundBy: req.user._id });
+    }
+
     // If another student found a lost item, notify the owner immediately via email
     if (isLostItemFound && item.reportedBy && item.reportedBy.email) {
       const emailResult = await emailUtils.sendItemFoundNotificationEmail({
@@ -223,8 +232,11 @@ router.post('/', protect, upload.single('image'), async (req, res) => {
       });
 
       if (!emailResult.success) {
-        // Rollback claim record so no broken/orphaned record is left
+        // Rollback claim record and reset foundBy so no broken/orphaned record is left
         await Claim.findByIdAndDelete(claim._id);
+        if (isLostItemFound && item) {
+          await Item.findByIdAndUpdate(item._id, { foundBy: null });
+        }
         return res.status(500).json({
           message: 'Failed to notify the item owner via email. Please check network and try again.',
         });
