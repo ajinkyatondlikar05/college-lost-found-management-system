@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const Claim = require('../models/Claim');
 const Item = require('../models/Item');
+const Otp = require('../models/Otp');
 const { protect, adminOnly } = require('../middleware/auth');
 const upload = require('../middleware/upload');
 const { uploadImage } = require('../config/cloudinary');
@@ -87,14 +88,53 @@ router.get('/:id', protect, adminOnly, async (req, res) => {
 // @access  Private
 router.post('/', protect, upload.single('image'), async (req, res) => {
   try {
-    const { itemId, itemName, fullName, email, phone, additionalDetails, finderMessage } = req.body;
-    let image = req.body.image || '';
+    const { itemId, itemName, fullName, email, phone, additionalDetails, finderMessage, otp } = req.body;
+
+    // Validate Full Name (Mandatory, trimmed, min 2 chars)
+    const trimmedName = (fullName || '').trim();
+    if (!trimmedName) {
+      return res.status(400).json({ message: 'Full name is required' });
+    }
+    if (trimmedName.length < 2) {
+      return res.status(400).json({ message: 'Full name must be at least 2 characters long' });
+    }
+
+    // Validate College Email Address (Mandatory, must end with @apsit.edu.in)
+    const submittedEmail = (email || '').trim().toLowerCase();
+    if (!submittedEmail) {
+      return res.status(400).json({ message: 'College email address is required' });
+    }
+    if (!submittedEmail.endsWith('@apsit.edu.in')) {
+      return res.status(400).json({ message: 'A valid college email ending with @apsit.edu.in is required' });
+    }
+
+    // Validate Phone Number (Mandatory, valid Indian mobile format: 10 digits starting with 6-9)
+    const submittedPhone = (phone || '').toString().trim();
+    if (!submittedPhone) {
+      return res.status(400).json({ message: 'Phone number is required' });
+    }
+    const cleanPhone = submittedPhone.replace(/[\s\-\(\)]/g, '').replace(/^(\+91|0)/, '');
+    if (!/^[6-9]\d{9}$/.test(cleanPhone)) {
+      return res.status(400).json({ message: 'Please enter a valid 10-digit Indian mobile number (starting with 6-9)' });
+    }
+
+    // Validate Proof Photo (Required: from upload or pre-existing Cloudinary URL)
+    let image = (req.body.image || '').trim();
     if (req.file) {
       try {
         image = await uploadImage(req.file, 'college-lost-found/claims');
       } catch (uploadErr) {
         return res.status(500).json({ message: uploadErr.message || 'Image upload failed' });
       }
+    }
+    if (!image) {
+      return res.status(400).json({ message: 'Found item image / proof photo is required' });
+    }
+
+    // Validate Additional Details / Finder Message (Required, not blank)
+    const messageContent = (finderMessage || additionalDetails || '').trim();
+    if (!messageContent) {
+      return res.status(400).json({ message: 'Additional details describing where/how you found the item are required' });
     }
 
     let item = null;
@@ -107,12 +147,13 @@ router.post('/', protect, upload.single('image'), async (req, res) => {
       resolvedItemName = item.title;
 
       // Validate item status: cannot claim already resolved/claimed items
-      if (item.status === 'Resolved' || item.status === 'Claimed') {
+      if (item.status?.toLowerCase() === 'resolved' || item.status?.toLowerCase() === 'claimed') {
         return res.status(400).json({ message: 'This item has already been resolved or claimed.' });
       }
 
       // Prevent self-claim: owner cannot claim their own reported item
-      if (item.reportedBy && item.reportedBy._id.toString() === req.user._id.toString()) {
+      const ownerId = item.reportedBy?._id ? item.reportedBy._id.toString() : (item.reportedBy ? item.reportedBy.toString() : '');
+      if (ownerId && ownerId === req.user._id.toString()) {
         return res.status(400).json({ message: 'You cannot claim or report finding your own reported item.' });
       }
 
@@ -127,16 +168,40 @@ router.post('/', protect, upload.single('image'), async (req, res) => {
       }
     }
 
-    const messageContent = (finderMessage || additionalDetails || '').trim();
+    // Validate 6-digit OTP verification code for students
+    if (req.user.role !== 'admin') {
+      const cleanOtp = (otp || '').toString().trim();
+      if (!cleanOtp || cleanOtp.length !== 6) {
+        return res.status(400).json({ message: '6-digit verification OTP code is required' });
+      }
+
+      const otpRecord = await Otp.findOne({
+        email: submittedEmail,
+        otp: cleanOtp,
+        expiresAt: { $gt: new Date() },
+      });
+
+      if (!otpRecord) {
+        const expiredOtp = await Otp.findOne({ email: submittedEmail, otp: cleanOtp });
+        if (expiredOtp) {
+          return res.status(400).json({ message: 'OTP has expired. Please request a new OTP code.' });
+        }
+        return res.status(400).json({ message: 'Invalid OTP code. Please check and try again.' });
+      }
+
+      // Delete the verified OTP code to prevent reuse
+      await Otp.deleteMany({ email: submittedEmail, otp: cleanOtp });
+    }
+
     const isLostItemFound = item && item.type === 'lost';
     const initialStatus = isLostItemFound ? 'Contacted' : 'pending';
 
     const claim = await Claim.create({
       item: item ? item._id : null,
       itemName: resolvedItemName || 'Unspecified Item',
-      fullName: fullName || req.user.name,
-      email: email || req.user.email,
-      phone: phone || req.user.phone || 'N/A',
+      fullName: trimmedName,
+      email: submittedEmail,
+      phone: cleanPhone,
       image,
       additionalDetails: messageContent,
       finderMessage: messageContent,
@@ -151,9 +216,9 @@ router.post('/', protect, upload.single('image'), async (req, res) => {
         ownerEmail: item.reportedBy.email,
         ownerName: item.reportedBy.name,
         itemName: item.title,
-        finderName: req.user.name || fullName || 'A Student',
-        finderEmail: req.user.email || email,
-        finderPhone: phone || req.user.phone || '',
+        finderName: trimmedName,
+        finderEmail: submittedEmail,
+        finderPhone: cleanPhone,
         finderMessage: messageContent,
       });
 

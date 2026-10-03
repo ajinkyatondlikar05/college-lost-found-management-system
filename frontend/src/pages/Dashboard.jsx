@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { getAllItems, createItem, createClaim, recoverItem, sendReportOtp, getImageUrl } from '../api';
+import { getAllItems, createItem, createClaim, recoverItem, sendReportOtp, verifyReportOtp, getImageUrl } from '../api';
 import toast from 'react-hot-toast';
 import {
   FiSearch,
@@ -71,6 +71,13 @@ export default function Dashboard() {
   const [isReportModalOpen, setIsReportModalOpen] = useState(false); // Report Lost Item modal
   const [isClaimModalOpen, setIsClaimModalOpen] = useState(false); // Report Found Item / Claim modal
   const [claimTargetItem, setClaimTargetItem] = useState(null);
+  const [claimStep, setClaimStep] = useState('form'); // 'form' | 'otp' | 'success'
+  const [claimErrors, setClaimErrors] = useState({});
+  const [claimOtp, setClaimOtp] = useState('');
+  const [claimOtpError, setClaimOtpError] = useState('');
+  const [claimResendCooldown, setClaimResendCooldown] = useState(0);
+  const [isClaimSendingOtp, setIsClaimSendingOtp] = useState(false);
+  const [isClaimVerifyingOtp, setIsClaimVerifyingOtp] = useState(false);
 
   // OTP Verification state for reporting lost items
   const [isOtpModalOpen, setIsOtpModalOpen] = useState(false);
@@ -341,9 +348,23 @@ export default function Dashboard() {
   };
 
   // Claim / Report Found Item Modal Handlers
+  useEffect(() => {
+    let timer;
+    if (claimResendCooldown > 0) {
+      timer = setInterval(() => {
+        setClaimResendCooldown((prev) => prev - 1);
+      }, 1000);
+    }
+    return () => clearInterval(timer);
+  }, [claimResendCooldown]);
+
   const handleOpenClaimModal = (item) => {
     setClaimTargetItem(item);
     setSelectedItem(null); // Close detail modal
+    setClaimStep('form');
+    setClaimErrors({});
+    setClaimOtp('');
+    setClaimOtpError('');
     setClaimForm({
       fullName: user?.name || '',
       email: user?.email || '',
@@ -355,9 +376,21 @@ export default function Dashboard() {
     setIsClaimModalOpen(true);
   };
 
+  const handleCloseClaimModal = () => {
+    setIsClaimModalOpen(false);
+    setClaimTargetItem(null);
+    setClaimStep('form');
+    setClaimImageFile(null);
+    setClaimImagePreview(null);
+    setClaimErrors({});
+    setClaimOtp('');
+    setClaimOtpError('');
+  };
+
   const handleClaimInputChange = (e) => {
     const { name, value } = e.target;
     setClaimForm((prev) => ({ ...prev, [name]: value }));
+    setClaimErrors((prev) => ({ ...prev, [name]: '' }));
   };
 
   const handleClaimImageChange = (e) => {
@@ -369,26 +402,124 @@ export default function Dashboard() {
       }
       setClaimImageFile(file);
       setClaimImagePreview(URL.createObjectURL(file));
+      setClaimErrors((prev) => ({ ...prev, image: '' }));
     }
   };
 
-  const handleSubmitClaim = async (e) => {
+  const validateClaimForm = () => {
+    const errs = {};
+    const trimmedName = (claimForm.fullName || '').trim();
+    if (!trimmedName) {
+      errs.fullName = 'Full Name is required';
+    } else if (trimmedName.length < 2) {
+      errs.fullName = 'Full Name must be at least 2 characters long';
+    }
+
+    const trimmedEmail = (claimForm.email || '').trim().toLowerCase();
+    if (!trimmedEmail) {
+      errs.email = 'College Email Address is required';
+    } else if (!trimmedEmail.endsWith('@apsit.edu.in')) {
+      errs.email = 'Email must end with @apsit.edu.in';
+    }
+
+    const cleanPhone = (claimForm.phone || '').trim().replace(/[\s\-\(\)]/g, '').replace(/^(\+91|0)/, '');
+    if (!cleanPhone) {
+      errs.phone = 'Phone Number is required';
+    } else if (!/^[6-9]\d{9}$/.test(cleanPhone)) {
+      errs.phone = 'Please enter a valid 10-digit Indian mobile number (starting with 6-9)';
+    }
+
+    if (!claimImageFile) {
+      errs.image = 'Found Item Image / Proof Photo is required';
+    }
+
+    const trimmedDetails = (claimForm.additionalDetails || '').trim();
+    if (!trimmedDetails) {
+      errs.additionalDetails = 'Additional details describing where/how you found the item are required';
+    }
+
+    setClaimErrors(errs);
+    return {
+      isValid: Object.keys(errs).length === 0,
+      cleanName: trimmedName,
+      cleanEmail: trimmedEmail,
+      cleanPhone,
+      cleanDetails: trimmedDetails,
+    };
+  };
+
+  const handleProceedToClaimOtp = async (e) => {
     e.preventDefault();
-    if (!claimForm.fullName.trim()) {
-      toast.error('Full Name is required');
-      return;
-    }
-    if (!claimForm.email.trim()) {
-      toast.error('Email Address is required');
-      return;
-    }
-    if (!claimForm.phone.trim()) {
-      toast.error('Phone Number is required');
+    const { isValid, cleanEmail, cleanName } = validateClaimForm();
+    if (!isValid) {
+      toast.error('Please fix the errors in the form before proceeding');
       return;
     }
 
     try {
-      setIsSubmittingClaim(true);
+      setIsClaimSendingOtp(true);
+      const res = await sendReportOtp({
+        email: cleanEmail,
+        name: cleanName,
+        type: 'found',
+      });
+      setClaimStep('otp');
+      setClaimResendCooldown(60);
+      setClaimOtp('');
+      setClaimOtpError('');
+      toast.success(res.data?.message || `We've sent a 6-digit OTP to ${cleanEmail}`);
+    } catch (err) {
+      const msg = err.response?.data?.message || 'Failed to send verification OTP. Please try again.';
+      setClaimOtpError(msg);
+      toast.error(msg);
+    } finally {
+      setIsClaimSendingOtp(false);
+    }
+  };
+
+  const handleResendClaimOtp = async () => {
+    if (claimResendCooldown > 0 || isClaimSendingOtp) return;
+    try {
+      setIsClaimSendingOtp(true);
+      const cleanEmail = (claimForm.email || '').trim().toLowerCase();
+      const cleanName = (claimForm.fullName || '').trim();
+      const res = await sendReportOtp({
+        email: cleanEmail,
+        name: cleanName,
+        type: 'found',
+      });
+      setClaimResendCooldown(60);
+      toast.success(res.data?.message || `We've sent a new 6-digit OTP to ${cleanEmail}`);
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to resend OTP');
+    } finally {
+      setIsClaimSendingOtp(false);
+    }
+  };
+
+  const handleVerifyAndSubmitClaim = async (e) => {
+    e.preventDefault();
+    const cleanOtp = claimOtp.trim();
+    if (!cleanOtp || cleanOtp.length !== 6) {
+      setClaimOtpError('Please enter the 6-digit OTP');
+      toast.error('Please enter the 6-digit OTP');
+      return;
+    }
+
+    const { isValid, cleanName, cleanEmail, cleanPhone, cleanDetails } = validateClaimForm();
+    if (!isValid) {
+      setClaimStep('form');
+      toast.error('Please ensure all required fields are filled');
+      return;
+    }
+
+    try {
+      setIsClaimVerifyingOtp(true);
+      await verifyReportOtp({
+        email: cleanEmail,
+        otp: cleanOtp,
+      });
+
       const formData = new FormData();
       if (claimTargetItem?._id) {
         formData.append('itemId', claimTargetItem._id);
@@ -396,27 +527,28 @@ export default function Dashboard() {
       } else {
         formData.append('itemName', 'Unspecified Found Item');
       }
-      formData.append('fullName', claimForm.fullName.trim());
-      formData.append('email', claimForm.email.trim());
-      formData.append('phone', claimForm.phone.trim());
-      formData.append('additionalDetails', claimForm.additionalDetails.trim());
-      formData.append('finderMessage', claimForm.additionalDetails.trim());
+      formData.append('fullName', cleanName);
+      formData.append('email', cleanEmail);
+      formData.append('phone', cleanPhone);
+      formData.append('additionalDetails', cleanDetails);
+      formData.append('finderMessage', cleanDetails);
+      formData.append('otp', cleanOtp);
       if (claimImageFile) {
         formData.append('image', claimImageFile);
       }
 
       await createClaim(formData);
-      if (claimTargetItem?.type === 'lost') {
-        toast.success('Your message has been sent to the owner! They will contact you shortly.');
-      } else {
-        toast.success('Claim submitted successfully! The admin will review it.');
-      }
-      setIsClaimModalOpen(false);
-      setClaimTargetItem(null);
+
+      const ownerName = claimTargetItem?.reportedBy?.name || 'Owner';
+      setClaimStep('success');
+      toast.success(`Found Item Report Submitted Successfully! ${ownerName} has been notified by email.`, { duration: 6000 });
+      fetchItems();
     } catch (err) {
-      toast.error(err.response?.data?.message || 'Failed to submit claim request');
+      const msg = err.response?.data?.message || 'Verification or claim submission failed';
+      setClaimOtpError(msg);
+      toast.error(msg);
     } finally {
-      setIsSubmittingClaim(false);
+      setIsClaimVerifyingOtp(false);
     }
   };
 
@@ -1053,21 +1185,23 @@ export default function Dashboard() {
                         I Got My Item Back
                       </button>
                     ) : null
-                  ) : selectedItem.type === 'lost' ? (
-                    <button
-                      className="ud-btn-action-primary"
-                      onClick={() => handleOpenClaimModal(selectedItem)}
-                    >
-                      I Found This Item
-                    </button>
-                  ) : (
-                    <button
-                      className="ud-btn-action-primary"
-                      onClick={() => handleOpenClaimModal(selectedItem)}
-                    >
-                      Claim This Item
-                    </button>
-                  )}
+                  ) : user ? (
+                    selectedItem.type === 'lost' ? (
+                      <button
+                        className="ud-btn-action-primary"
+                        onClick={() => handleOpenClaimModal(selectedItem)}
+                      >
+                        I Found This Item
+                      </button>
+                    ) : (
+                      <button
+                        className="ud-btn-action-primary"
+                        onClick={() => handleOpenClaimModal(selectedItem)}
+                      >
+                        Claim This Item
+                      </button>
+                    )
+                  ) : null}
                 </div>
               </div>
             </div>
@@ -1386,7 +1520,7 @@ export default function Dashboard() {
           9. REPORT FOUND ITEM / CLAIM MODAL
           ======================================================== */}
       {isClaimModalOpen && (
-        <div className="ud-modal-backdrop" onClick={() => setIsClaimModalOpen(false)}>
+        <div className="ud-modal-backdrop" onClick={handleCloseClaimModal}>
           <div
             className="ud-modal-card ud-claim-modal animate-scaleUp"
             onClick={(e) => e.stopPropagation()}
@@ -1394,133 +1528,278 @@ export default function Dashboard() {
             <div className="ud-modal-header">
               <div>
                 <h3 className="ud-modal-title">
-                  {claimTargetItem?.type === 'lost' ? 'Report Found Item' : 'Claim Item'}
+                  {claimStep === 'otp'
+                    ? 'Verify Your Email'
+                    : claimStep === 'success'
+                    ? 'Report Submitted'
+                    : claimTargetItem?.type === 'lost'
+                    ? 'Report Found Item'
+                    : 'Claim Item'}
                 </h3>
                 {claimTargetItem && (
                   <p className="ud-modal-subtitle">
-                    Regarding: <strong>{claimTargetItem.title}</strong>
+                    {claimStep === 'otp' ? (
+                      <>We've sent a 6-digit OTP to <strong>{claimForm.email}</strong></>
+                    ) : (
+                      <>Regarding: <strong>{claimTargetItem.title}</strong></>
+                    )}
                   </p>
                 )}
               </div>
               <button
                 className="ud-modal-close-btn"
-                onClick={() => setIsClaimModalOpen(false)}
+                onClick={handleCloseClaimModal}
                 title="Close"
               >
                 <FiX />
               </button>
             </div>
 
-            <form onSubmit={handleSubmitClaim} className="ud-form">
-              <div className="ud-form-grid">
+            {claimStep === 'form' && (
+              <form onSubmit={handleProceedToClaimOtp} className="ud-form">
+                <div className="ud-form-grid">
+                  <div className="ud-form-group">
+                    <label className="ud-form-label">
+                      Full Name <span className="ud-required">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      name="fullName"
+                      placeholder="Your full name"
+                      className="ud-form-input"
+                      value={claimForm.fullName}
+                      onChange={handleClaimInputChange}
+                    />
+                    {claimErrors.fullName && (
+                      <span style={{ color: '#ef4444', fontSize: '0.8rem', marginTop: '3px', display: 'block' }}>
+                        {claimErrors.fullName}
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="ud-form-group">
+                    <label className="ud-form-label">
+                      College Email Address <span className="ud-required">*</span>
+                    </label>
+                    <input
+                      type="email"
+                      name="email"
+                      placeholder="e.g. 24107000@apsit.edu.in"
+                      className="ud-form-input"
+                      value={claimForm.email}
+                      onChange={handleClaimInputChange}
+                    />
+                    {claimErrors.email && (
+                      <span style={{ color: '#ef4444', fontSize: '0.8rem', marginTop: '3px', display: 'block' }}>
+                        {claimErrors.email}
+                      </span>
+                    )}
+                  </div>
+                </div>
+
                 <div className="ud-form-group">
                   <label className="ud-form-label">
-                    Full Name <span className="ud-required">*</span>
+                    Phone Number <span className="ud-required">*</span>
+                  </label>
+                  <input
+                    type="tel"
+                    name="phone"
+                    placeholder="10-digit mobile number (e.g. 9876543210)"
+                    className="ud-form-input"
+                    value={claimForm.phone}
+                    onChange={handleClaimInputChange}
+                  />
+                  {claimErrors.phone && (
+                    <span style={{ color: '#ef4444', fontSize: '0.8rem', marginTop: '3px', display: 'block' }}>
+                      {claimErrors.phone}
+                    </span>
+                  )}
+                </div>
+
+                {/* Found Item Image / Proof Upload (Required) */}
+                <div className="ud-form-group">
+                  <label className="ud-form-label">
+                    Found Item Image / Proof Photo <span className="ud-required">*</span>
+                  </label>
+                  <div className="ud-image-dropzone">
+                    <input
+                      type="file"
+                      accept="image/*"
+                      id="claim-proof-image"
+                      style={{ display: 'none' }}
+                      onChange={handleClaimImageChange}
+                    />
+                    {claimImagePreview ? (
+                      <div className="ud-preview-container">
+                        <img src={claimImagePreview} alt="Proof" className="ud-preview-image" />
+                        <button
+                          type="button"
+                          className="ud-btn-remove-preview"
+                          onClick={() => {
+                            setClaimImageFile(null);
+                            setClaimImagePreview(null);
+                          }}
+                        >
+                          <FiX /> Remove
+                        </button>
+                      </div>
+                    ) : (
+                      <label htmlFor="claim-proof-image" className="ud-dropzone-label">
+                        <FiUploadCloud className="ud-dropzone-icon" />
+                        <span className="ud-dropzone-text">Click to upload found item photo</span>
+                        <span className="ud-dropzone-subtext">JPG, PNG under 2MB</span>
+                      </label>
+                    )}
+                  </div>
+                  {claimErrors.image && (
+                    <span style={{ color: '#ef4444', fontSize: '0.8rem', marginTop: '3px', display: 'block' }}>
+                      {claimErrors.image}
+                    </span>
+                  )}
+                </div>
+
+                <div className="ud-form-group">
+                  <label className="ud-form-label">
+                    Additional Details <span className="ud-required">*</span>
+                  </label>
+                  <textarea
+                    name="additionalDetails"
+                    rows={3}
+                    placeholder="Describe where or how you found the item, and how the owner can collect it from you..."
+                    className="ud-form-textarea"
+                    value={claimForm.additionalDetails}
+                    onChange={handleClaimInputChange}
+                  />
+                  {claimErrors.additionalDetails && (
+                    <span style={{ color: '#ef4444', fontSize: '0.8rem', marginTop: '3px', display: 'block' }}>
+                      {claimErrors.additionalDetails}
+                    </span>
+                  )}
+                </div>
+
+                <div className="ud-modal-footer">
+                  <button
+                    type="button"
+                    className="ud-btn-cancel"
+                    onClick={handleCloseClaimModal}
+                  >
+                    Cancel
+                  </button>
+                  <button type="submit" className="ud-btn-submit-green" disabled={isClaimSendingOtp}>
+                    {isClaimSendingOtp ? 'Sending OTP...' : 'Send Verification OTP'}
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {claimStep === 'otp' && (
+              <form onSubmit={handleVerifyAndSubmitClaim} className="ud-form">
+                <div className="ud-form-group" style={{ textAlign: 'center' }}>
+                  <label className="ud-form-label" style={{ marginBottom: '8px' }}>
+                    Enter 6-Digit OTP <span className="ud-required">*</span>
                   </label>
                   <input
                     type="text"
-                    name="fullName"
-                    required
+                    maxLength={6}
+                    placeholder="••••••"
                     className="ud-form-input"
-                    value={claimForm.fullName}
-                    onChange={handleClaimInputChange}
+                    style={{
+                      letterSpacing: '6px',
+                      fontSize: '1.4rem',
+                      textAlign: 'center',
+                      fontWeight: 700,
+                      maxWidth: '240px',
+                      margin: '0 auto',
+                    }}
+                    value={claimOtp}
+                    onChange={(e) => {
+                      setClaimOtp(e.target.value.replace(/\D/g, '').slice(0, 6));
+                      setClaimOtpError('');
+                    }}
+                    autoFocus
                   />
-                </div>
-
-                <div className="ud-form-group">
-                  <label className="ud-form-label">
-                    Email Address <span className="ud-required">*</span>
-                  </label>
-                  <input
-                    type="email"
-                    name="email"
-                    required
-                    className="ud-form-input"
-                    value={claimForm.email}
-                    onChange={handleClaimInputChange}
-                  />
-                </div>
-              </div>
-
-              <div className="ud-form-group">
-                <label className="ud-form-label">
-                  Phone Number <span className="ud-required">*</span>
-                </label>
-                <input
-                  type="tel"
-                  name="phone"
-                  required
-                  placeholder="e.g. 9876543210"
-                  className="ud-form-input"
-                  value={claimForm.phone}
-                  onChange={handleClaimInputChange}
-                />
-              </div>
-
-              {/* Found Item Image / Proof Upload */}
-              <div className="ud-form-group">
-                <label className="ud-form-label">Found Item Image / Proof Photo</label>
-                <span className="ud-helper-text">
-                  Upload any documents or photos that prove this item belongs to you or was found by
-                  you.
-                </span>
-                <div className="ud-image-dropzone">
-                  <input
-                    type="file"
-                    accept="image/*"
-                    id="claim-proof-image"
-                    style={{ display: 'none' }}
-                    onChange={handleClaimImageChange}
-                  />
-                  {claimImagePreview ? (
-                    <div className="ud-preview-container">
-                      <img src={claimImagePreview} alt="Proof" className="ud-preview-image" />
-                      <button
-                        type="button"
-                        className="ud-btn-remove-preview"
-                        onClick={() => {
-                          setClaimImageFile(null);
-                          setClaimImagePreview(null);
-                        }}
-                      >
-                        <FiX /> Remove
-                      </button>
-                    </div>
-                  ) : (
-                    <label htmlFor="claim-proof-image" className="ud-dropzone-label">
-                      <FiUploadCloud className="ud-dropzone-icon" />
-                      <span className="ud-dropzone-text">Click to upload photo or proof document</span>
-                      <span className="ud-dropzone-subtext">JPG, PNG under 2MB</span>
-                    </label>
+                  {claimOtpError && (
+                    <span style={{ color: '#ef4444', fontSize: '0.85rem', marginTop: '6px', display: 'block' }}>
+                      {claimOtpError}
+                    </span>
                   )}
                 </div>
-              </div>
 
-              <div className="ud-form-group">
-                <label className="ud-form-label">Additional Details</label>
-                <textarea
-                  name="additionalDetails"
-                  rows={3}
-                  placeholder="Provide any additional information that can help verify your claim..."
-                  className="ud-form-textarea"
-                  value={claimForm.additionalDetails}
-                  onChange={handleClaimInputChange}
-                />
-              </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '14px 0' }}>
+                  <span style={{ fontSize: '0.85rem', color: '#64748b' }}>
+                    Didn't receive the OTP?
+                  </span>
+                  <button
+                    type="button"
+                    disabled={claimResendCooldown > 0 || isClaimSendingOtp}
+                    onClick={handleResendClaimOtp}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      color: claimResendCooldown > 0 ? '#94a3b8' : '#2563eb',
+                      fontWeight: 600,
+                      fontSize: '0.85rem',
+                      cursor: claimResendCooldown > 0 ? 'not-allowed' : 'pointer',
+                    }}
+                  >
+                    {claimResendCooldown > 0 ? `Resend in ${claimResendCooldown}s` : 'Resend OTP'}
+                  </button>
+                </div>
 
-              <div className="ud-modal-footer">
+                <div className="ud-modal-footer">
+                  <button
+                    type="button"
+                    className="ud-btn-cancel"
+                    onClick={() => setClaimStep('form')}
+                    disabled={isClaimVerifyingOtp}
+                  >
+                    Back
+                  </button>
+                  <button
+                    type="submit"
+                    className="ud-btn-submit-green"
+                    disabled={isClaimVerifyingOtp}
+                  >
+                    {isClaimVerifyingOtp ? 'Verifying & Submitting...' : 'Confirm & Submit'}
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {claimStep === 'success' && (
+              <div style={{ textAlign: 'center', padding: '24px 12px' }}>
+                <div
+                  style={{
+                    width: '64px',
+                    height: '64px',
+                    borderRadius: '50%',
+                    background: 'rgba(16, 185, 129, 0.1)',
+                    color: '#10b981',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    margin: '0 auto 16px',
+                    fontSize: '32px',
+                  }}
+                >
+                  ✓
+                </div>
+                <h3 style={{ fontSize: '1.25rem', fontWeight: 700, color: '#0f172a', marginBottom: '8px' }}>
+                  Found Item Report Submitted Successfully
+                </h3>
+                <p style={{ fontSize: '0.95rem', color: '#475569', marginBottom: '24px' }}>
+                  <strong>{claimTargetItem?.reportedBy?.name || 'Ajinkya'}</strong> has been notified by email.
+                </p>
                 <button
                   type="button"
-                  className="ud-btn-cancel"
-                  onClick={() => setIsClaimModalOpen(false)}
+                  className="ud-btn-submit-green"
+                  style={{ width: '100%' }}
+                  onClick={handleCloseClaimModal}
                 >
-                  Cancel
-                </button>
-                <button type="submit" className="ud-btn-submit-green" disabled={isSubmittingClaim}>
-                  {isSubmittingClaim ? 'Submitting...' : 'Submit Claim'}
+                  Done
                 </button>
               </div>
-            </form>
+            )}
           </div>
         </div>
       )}

@@ -6,8 +6,8 @@ const Otp = require('../models/Otp');
 const Claim = require('../models/Claim');
 const { protect, adminOnly } = require('../middleware/auth');
 const upload = require('../middleware/upload');
-const { sendOtpEmail } = require('../utils/email');
 const { uploadImage } = require('../config/cloudinary');
+const emailUtils = require('../utils/email');
 
 // @route   GET /api/items
 // @desc    Get all items (with filters, date range, location, sorting)
@@ -131,7 +131,7 @@ router.post('/send-report-otp', protect, async (req, res) => {
     console.log(`[OTP] 6-digit verification OTP successfully generated and saved for recipient: ${email}`);
 
     // Send real email via configured Gmail SMTP
-    const emailRes = await sendOtpEmail(email, name, otp, type);
+    const emailRes = await emailUtils.sendOtpEmail(email, name, otp, type);
     if (!emailRes.success) {
       console.error(`[OTP] Delivery failure for ${email}: ${emailRes.error}`);
       return res.status(500).json({
