@@ -234,6 +234,10 @@
 }
 
 @media (max-width: 768px) {
+  .navbar-logo {
+    pointer-events: none;
+    cursor: default;
+  }
   .menu-toggle { display: flex; align-items: center; }
   .user-name { display: none; }
 

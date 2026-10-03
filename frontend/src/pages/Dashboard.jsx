@@ -438,7 +438,16 @@ export default function Dashboard() {
       <header className="ud-navbar">
         <div className="ud-navbar-container">
           {/* Left: Found & Lost Logo */}
-          <div className="ud-brand" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}>
+          <div
+            className="ud-brand"
+            onClick={(e) => {
+              if (window.innerWidth <= 768) {
+                e.preventDefault();
+                return;
+              }
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }}
+          >
             <div className="ud-brand-icon">
               <MdFindInPage />
             </div>

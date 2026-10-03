@@ -60,4 +60,15 @@ describe('User Mobile Layout & Collapsible Filter Drawer Verification', () => {
     assert.ok(cssContent.includes('.ud-user-pill-btn'), 'Compact mobile user pill must be defined');
     assert.ok(cssContent.includes('overflow-x: hidden'), 'Page overflow protection must be defined');
   });
+
+  it('Navbar.jsx and Navbar.css prevent logo from navigating to "/" on mobile', () => {
+    const navbarJsxPath = path.join(frontendRoot, 'src', 'components', 'Navbar.jsx');
+    const navbarCssPath = path.join(frontendRoot, 'src', 'components', 'Navbar.css');
+    const navbarJsx = fs.readFileSync(navbarJsxPath, 'utf-8');
+    const navbarCss = fs.readFileSync(navbarCssPath, 'utf-8');
+
+    assert.ok(navbarJsx.includes('window.innerWidth <= 768'), 'Navbar logo must check mobile width before navigating');
+    assert.ok(navbarJsx.includes('e.preventDefault()'), 'Navbar logo must prevent default navigation on mobile');
+    assert.ok(navbarCss.includes('.navbar-logo {\n    pointer-events: none;\n    cursor: default;\n  }'), 'Navbar logo must disable pointer events on mobile');
+  });
 });

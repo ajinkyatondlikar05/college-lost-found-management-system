@@ -46,7 +46,15 @@ export default function Navbar() {
       <div className="container">
         <div className="navbar-inner">
           {/* Logo */}
-          <Link to="/" className="navbar-logo">
+          <Link
+            to="/"
+            className="navbar-logo"
+            onClick={(e) => {
+              if (window.innerWidth <= 768) {
+                e.preventDefault();
+              }
+            }}
+          >
             <MdFindInPage className="logo-icon" />
             <span>Lost<span className="logo-accent">&Found</span></span>
           </Link>

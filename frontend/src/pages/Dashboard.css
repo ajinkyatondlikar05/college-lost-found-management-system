@@ -1687,11 +1687,13 @@
     box-sizing: border-box;
   }
 
-  /* Logo: compact and completely visible */
+  /* Logo: compact and completely visible, non-navigating brand on mobile */
   .ud-brand {
     gap: 6px;
     flex-shrink: 1;
     min-width: 0;
+    pointer-events: none;
+    cursor: default;
   }
 
   .ud-brand-icon {
