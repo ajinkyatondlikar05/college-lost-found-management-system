@@ -432,6 +432,11 @@
   color: #2e7d32;
 }
 
+.bg-claimed-light {
+  background: linear-gradient(135deg, #dcfce7, #bbf7d0);
+  color: #166534;
+}
+
 .bg-warning-light {
   background: linear-gradient(135deg, #fff3e0, #ffcc80);
   color: #ef6c00;
@@ -599,6 +604,23 @@
 
 .admin-crud-table tbody tr:hover {
   background-color: #f8fafc;
+}
+
+.item-thumbnail-img {
+  width: 40px;
+  height: 40px;
+  object-fit: cover;
+  border-radius: 4px;
+  cursor: pointer;
+  display: block;
+  border: 1px solid #e2e8f0;
+  background-color: #f1f5f9;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.item-thumbnail-img:hover {
+  transform: scale(1.08);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
 }
 
 /* Action Icons */
@@ -1224,4 +1246,117 @@
     flex-wrap: wrap;
     gap: 8px;
   }
+}
+
+/* Workflow Timeline (Admin Details Modal) */
+.admin-timeline-wrap {
+  margin-top: 18px;
+  border-top: 1px solid #e2e8f0;
+  padding-top: 14px;
+}
+
+.timeline-title-header {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #0f172a;
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.timeline-stepper {
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  padding-left: 20px;
+}
+
+.timeline-stepper::before {
+  content: '';
+  position: absolute;
+  top: 10px;
+  bottom: 10px;
+  left: 7px;
+  width: 2px;
+  background-color: #cbd5e1;
+}
+
+.timeline-step-item {
+  position: relative;
+  padding-bottom: 14px;
+}
+
+.timeline-step-item:last-child {
+  padding-bottom: 0;
+}
+
+.timeline-step-dot {
+  position: absolute;
+  left: -20px;
+  top: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2px solid #ffffff;
+  box-shadow: 0 0 0 1px #cbd5e1;
+  background-color: #94a3b8;
+}
+
+.timeline-step-dot.completed {
+  background-color: #10b981;
+  box-shadow: 0 0 0 1px #10b981;
+}
+
+.timeline-step-dot.rejected {
+  background-color: #ef4444;
+  box-shadow: 0 0 0 1px #ef4444;
+}
+
+.timeline-step-dot.current {
+  background-color: #3b82f6;
+  box-shadow: 0 0 0 1px #3b82f6;
+}
+
+.timeline-step-content {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.timeline-step-name {
+  font-size: 13px;
+  font-weight: 700;
+  color: #1e293b;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.timeline-step-desc {
+  font-size: 12px;
+  color: #64748b;
+}
+
+.timeline-step-time {
+  font-size: 11px;
+  color: #94a3b8;
+}
+
+.status-pill.owner-found {
+  background: #dcfce7;
+  color: #15803d;
+  font-weight: 700;
+}
+
+.status-pill.finder-found {
+  background: #e0f2fe;
+  color: #0369a1;
+  font-weight: 700;
+}
+
+.status-pill.normal-found {
+  background: #f3e8ff;
+  color: #7e22ce;
+  font-weight: 700;
 }

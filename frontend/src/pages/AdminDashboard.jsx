@@ -67,6 +67,258 @@ import './AdminDashboard.css';
 
 ChartJS.register(...registerables);
 
+// Helper for finding the active claim of an item
+export const getActiveClaim = (item) => {
+  if (!item?.claims || item.claims.length === 0) return null;
+  return (
+    item.claims.find((c) => {
+      const cs = (c.status || '').toLowerCase();
+      return ['contacted', 'pending', 'pending owner confirmation', 'pending admin verification', 'approved'].includes(cs);
+    }) || null
+  );
+};
+
+// Helper for finding the resolved claim of an item
+export const getResolvedClaim = (item) => {
+  if (!item?.claims || item.claims.length === 0) return null;
+  return item.claims.find((c) => (c.status || '').toLowerCase() === 'resolved') || null;
+};
+
+// Helper for check if item has active finder report
+export const hasActiveFinder = (item) => {
+  if (!item) return false;
+  if (item.foundBy) return true;
+  return Boolean(getActiveClaim(item));
+};
+
+// Helper for check if item is resolved
+export const isResolvedItem = (item) => {
+  if (!item) return false;
+  const s = (item.status || '').toLowerCase();
+  return s === 'resolved' || s === 'claimed';
+};
+
+// Helper for check if item is claimed (alias to isResolvedItem for mutually exclusive categorization)
+export const isClaimedItem = (item) => {
+  return isResolvedItem(item);
+};
+
+// Helper for check if item is actively lost (unresolved lost reports without active finder)
+export const isLostItem = (item) => {
+  if (!item) return false;
+  if (isResolvedItem(item)) return false;
+  if (item.type !== 'lost') return false;
+  if (hasActiveFinder(item)) return false;
+  return true;
+};
+
+// Helper for check if item is found (direct found report OR lost item with active finder awaiting owner confirmation)
+export const isFoundItem = (item) => {
+  if (!item) return false;
+  if (isResolvedItem(item)) return false;
+  if (item.type === 'found') return true;
+  if (item.type === 'lost' && hasActiveFinder(item)) return true;
+  return false;
+};
+
+// Helper for Recovery Type label
+export const getRecoveryTypeLabel = (item) => {
+  if (!item) return '—';
+  if (item.recoveryType === 'owner_found') return 'Owner Found Item';
+  if (item.recoveryType === 'finder_found') return 'Finder Found Item';
+  if (item.recoveryType === 'normal_found') return 'Normal Found Report';
+  if (item.type === 'found') return 'Normal Found Report';
+  if (item.foundBy || item.claimedBy || (item.claims && item.claims.length > 0)) return 'Finder Found Item';
+  return 'Owner Found Item';
+};
+
+// Helper for Recovered / Found By label in Claimed
+export const getRecoveredByLabel = (item) => {
+  if (!item) return '—';
+  const resolvedClaim = getResolvedClaim(item);
+  if (item.recoveryType === 'owner_found') {
+    return `Owner (${item.recoveredBy?.name || item.reportedBy?.name || 'Owner'})`;
+  }
+  if (item.recoveryType === 'finder_found' || item.type === 'lost') {
+    return item.foundBy?.name || item.claimedBy?.name || resolvedClaim?.fullName || resolvedClaim?.finder?.name || 'Finder';
+  }
+  if (item.type === 'found' || item.recoveryType === 'normal_found') {
+    return `Claimed by: ${item.claimedBy?.name || resolvedClaim?.fullName || resolvedClaim?.owner?.name || 'Owner'}`;
+  }
+  return item.recoveredBy?.name || item.foundBy?.name || item.reportedBy?.name || '—';
+};
+
+// Helper for Workflow Timeline
+export const getItemTimeline = (item) => {
+  if (!item) return [];
+
+  const isResolved = isResolvedItem(item);
+  const claims = item.claims || [];
+  const latestClaim = claims[0];
+  const activeClaim = getActiveClaim(item);
+  const resolvedClaim = getResolvedClaim(item);
+  const rejectedClaims = claims.filter(
+    (c) => (c.status || '').toLowerCase() === 'rejected' || c.status === 'Admin Rejected'
+  );
+
+  // Case D: Normal Found Report
+  if (item.type === 'found' || item.recoveryType === 'normal_found') {
+    const steps = [
+      {
+        title: 'Reported Found',
+        desc: `Reported by ${item.reportedBy?.name || 'Student'}`,
+        date: item.createdAt || item.date,
+        status: 'completed',
+      },
+    ];
+
+    if (claims.length > 0) {
+      steps.push({
+        title: 'Claim Submitted',
+        desc: `Claim submitted by ${latestClaim?.fullName || latestClaim?.finder?.name || item.claimedBy?.name || 'Owner'}`,
+        date: latestClaim?.submittedAt || latestClaim?.createdAt,
+        status: 'completed',
+      });
+    }
+
+    if (item.ownerConfirmedAt || isResolved) {
+      steps.push({
+        title: 'Owner Verified',
+        desc: item.ownerConfirmedAt ? `Verified on ${new Date(item.ownerConfirmedAt).toLocaleDateString()}` : 'Verified via OTP',
+        date: item.ownerConfirmedAt || item.resolvedAt,
+        status: 'completed',
+      });
+      steps.push({
+        title: 'Resolved',
+        desc: 'Item recovery completed and closed',
+        date: item.resolvedAt || item.updatedAt,
+        status: 'completed',
+      });
+    } else if (claims.length > 0) {
+      steps.push({
+        title: 'Claim Pending Verification',
+        desc: 'Waiting for verification',
+        status: 'current',
+      });
+    }
+
+    return steps;
+  }
+
+  // Lost item flows (Cases A, B, C)
+  const steps = [
+    {
+      title: 'Reported Lost',
+      desc: `Reported by ${item.reportedBy?.name || 'Owner'}`,
+      date: item.createdAt || item.date,
+      status: 'completed',
+    },
+    {
+      title: 'Active',
+      desc: 'Searching for item on campus',
+      date: item.createdAt,
+      status: 'completed',
+    },
+  ];
+
+  // Case A: Owner finds own item
+  if (item.recoveryType === 'owner_found') {
+    steps.push({
+      title: 'Owner Found Item',
+      desc: `Owner (${item.recoveredBy?.name || item.reportedBy?.name || 'Owner'}) reported finding own item`,
+      date: item.ownerConfirmedAt || item.resolvedAt,
+      status: 'completed',
+    });
+    steps.push({
+      title: 'Owner OTP Verified',
+      desc: '6-digit OTP verified successfully',
+      date: item.ownerConfirmedAt || item.resolvedAt,
+      status: 'completed',
+    });
+    steps.push({
+      title: 'Resolved',
+      desc: 'Item marked as resolved with owner self-recovery',
+      date: item.resolvedAt || item.updatedAt,
+      status: 'completed',
+    });
+    return steps;
+  }
+
+  // Case B: Another student finds item and it is resolved
+  if (isResolved && (item.recoveryType === 'finder_found' || resolvedClaim || item.foundBy)) {
+    const finderName = item.foundBy?.name || resolvedClaim?.fullName || resolvedClaim?.finder?.name || 'Finder';
+    steps.push({
+      title: 'Finder Reported',
+      desc: `Found by ${finderName} with proof image & OTP verification`,
+      date: resolvedClaim?.submittedAt || item.updatedAt,
+      status: 'completed',
+    });
+    steps.push({
+      title: 'Owner Confirmed Recovery',
+      desc: 'Owner confirmed "I Got My Item Back"',
+      date: item.ownerConfirmedAt || resolvedClaim?.ownerConfirmedAt || item.resolvedAt,
+      status: 'completed',
+    });
+    steps.push({
+      title: 'Owner OTP Verified',
+      desc: 'Owner verified 6-digit recovery OTP',
+      date: item.ownerConfirmedAt || item.resolvedAt,
+      status: 'completed',
+    });
+    steps.push({
+      title: 'Resolved',
+      desc: 'Recovery completed and resolved without admin approval',
+      date: item.resolvedAt || item.updatedAt,
+      status: 'completed',
+    });
+    return steps;
+  }
+
+  // Case C: Wrong Finder (rejected claims and currently active lost)
+  if (!isResolved && rejectedClaims.length > 0 && !activeClaim && !item.foundBy) {
+    const lastRejected = rejectedClaims[0];
+    const finderName = lastRejected.fullName || lastRejected.finder?.name || 'Finder';
+    steps.push({
+      title: 'Finder Reported',
+      desc: `Reported by ${finderName}`,
+      date: lastRejected.submittedAt || lastRejected.createdAt,
+      status: 'completed',
+    });
+    steps.push({
+      title: 'Finder Rejected',
+      desc: 'Owner clicked "This Is Not My Item"',
+      date: lastRejected.rejectedAt || lastRejected.updatedAt,
+      status: 'rejected',
+    });
+    steps.push({
+      title: 'Active',
+      desc: 'Returned to active Lost items searching for finder',
+      date: lastRejected.rejectedAt || lastRejected.updatedAt,
+      status: 'current',
+    });
+    return steps;
+  }
+
+  // In-progress Finder Report (Case B waiting for owner confirmation)
+  if (!isResolved && (activeClaim || item.foundBy)) {
+    const finderName = item.foundBy?.name || activeClaim?.fullName || activeClaim?.finder?.name || 'Finder';
+    steps.push({
+      title: 'Finder Reported',
+      desc: `Found by ${finderName} (OTP verified)`,
+      date: activeClaim?.submittedAt || activeClaim?.createdAt || item.updatedAt,
+      status: 'completed',
+    });
+    steps.push({
+      title: 'Waiting for Owner Confirmation',
+      desc: 'Owner notification sent, awaiting owner OTP confirmation',
+      status: 'current',
+    });
+    return steps;
+  }
+
+  return steps;
+};
+
 export default function AdminDashboard() {
   const { tab } = useParams();
   const navigate = useNavigate();
@@ -74,7 +326,7 @@ export default function AdminDashboard() {
   const [dataError, setDataError] = useState(null);
 
   // Active section
-  const currentTab = tab || 'dashboard';
+  const currentTab = tab === 'claimed-items' ? 'claimed' : (tab === 'claim-requests' ? 'found-items' : (tab || 'dashboard'));
 
   // Layout UI state
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -93,6 +345,11 @@ export default function AdminDashboard() {
   const [claims, setClaims] = useState([]);
   const [users, setUsers] = useState([]);
   const [admins, setAdmins] = useState([]);
+
+  // Mutually exclusive badge counts
+  const lostBadgeCount = items.filter(isLostItem).length;
+  const foundBadgeCount = items.filter(isFoundItem).length;
+  const claimedBadgeCount = items.filter(isClaimedItem).length;
 
   // Search & Filter & Pagination states
   const [searchTerm, setSearchTerm] = useState('');
@@ -137,6 +394,7 @@ export default function AdminDashboard() {
 
   // View details modal
   const [viewDetailsItem, setViewDetailsItem] = useState(null);
+  const [previewImageModal, setPreviewImageModal] = useState(null);
 
   // Reports selection
   const [reportType, setReportType] = useState('lost');
@@ -201,13 +459,30 @@ export default function AdminDashboard() {
     try {
       if (currentTab === 'dashboard') {
         await fetchGeneralData();
-      } else if (currentTab === 'lost-items' || currentTab === 'found-items') {
-        const type = currentTab === 'lost-items' ? 'lost' : 'found';
-        const res = await getAllItems({ limit: 100, type });
-        setItems(res.data.items || []);
-      } else if (currentTab === 'claim-requests') {
-        const res = await getClaims({ limit: 100 });
-        setClaims(res.data.claims || []);
+      } else if (['lost-items', 'found-items', 'claim-requests', 'claimed'].includes(currentTab)) {
+        const [itemsRes, claimsRes] = await Promise.all([
+          getAllItems({ limit: 500 }),
+          getClaims({ limit: 500 }),
+        ]);
+        const fetchedItems = itemsRes.data?.items || [];
+        const fetchedClaims = claimsRes.data?.claims || [];
+
+        const claimsByItemId = {};
+        fetchedClaims.forEach((c) => {
+          const itemId = c.item?._id ? c.item._id.toString() : (c.item ? c.item.toString() : null);
+          if (itemId) {
+            if (!claimsByItemId[itemId]) claimsByItemId[itemId] = [];
+            claimsByItemId[itemId].push(c);
+          }
+        });
+
+        const itemsWithClaims = fetchedItems.map((it) => ({
+          ...it,
+          claims: claimsByItemId[it._id] || it.claims || [],
+        }));
+
+        setItems(itemsWithClaims);
+        setClaims(fetchedClaims);
       } else if (currentTab === 'categories') {
         const res = await getCategories();
         setCategories(res.data);
@@ -817,11 +1092,14 @@ export default function AdminDashboard() {
   const getFilteredData = () => {
     let list = [];
     if (currentTab === 'lost-items') {
-      list = items.filter((i) => i.type === 'lost');
+      // Mutually exclusive: active unresolved lost reports only
+      list = items.filter(isLostItem);
     } else if (currentTab === 'found-items') {
-      list = items.filter((i) => i.type === 'found');
-    } else if (currentTab === 'claim-requests') {
-      list = [...claims];
+      // Mutually exclusive: found items & finder-reported lost items awaiting recovery
+      list = items.filter(isFoundItem);
+    } else if (currentTab === 'claimed') {
+      // Mutually exclusive: final resolved/recovered items only
+      list = items.filter(isClaimedItem);
     } else if (currentTab === 'users') {
       list = users.filter((u) => u.role !== 'admin');
     } else if (currentTab === 'admins') {
@@ -842,10 +1120,25 @@ export default function AdminDashboard() {
     if (searchTerm.trim()) {
       const q = searchTerm.toLowerCase();
       list = list.filter((item) => {
+        const reporterName = item.reportedBy?.name || item.fullName || '';
+        const finderName = item.foundBy?.name || item.recoveredBy?.name || '';
+        const recType = getRecoveryTypeLabel(item);
+
         if (searchField === 'all') {
-          return Object.values(item).some((v) =>
-            typeof v === 'string' ? v.toLowerCase().includes(q) : false
+          return (
+            Object.values(item).some((v) =>
+              typeof v === 'string' ? v.toLowerCase().includes(q) : false
+            ) ||
+            reporterName.toLowerCase().includes(q) ||
+            finderName.toLowerCase().includes(q) ||
+            recType.toLowerCase().includes(q)
           );
+        } else if (searchField === 'title') {
+          return (item.title || item.itemName || '').toLowerCase().includes(q);
+        } else if (searchField === 'reportedBy') {
+          return reporterName.toLowerCase().includes(q);
+        } else if (searchField === 'foundBy') {
+          return finderName.toLowerCase().includes(q);
         } else if (item[searchField]) {
           return String(item[searchField]).toLowerCase().includes(q);
         }
@@ -888,6 +1181,11 @@ export default function AdminDashboard() {
           >
             <FiSearch className="sidebar-nav-icon" />
             <span className="sidebar-nav-text">Lost Items</span>
+            {lostBadgeCount > 0 && !sidebarCollapsed && (
+              <span className="badge-pill" style={{ background: '#3498db', color: '#fff', borderRadius: '10px', padding: '2px 7px', fontSize: '11px', fontWeight: 'bold', marginLeft: 'auto' }}>
+                {lostBadgeCount}
+              </span>
+            )}
           </button>
 
           <button
@@ -896,6 +1194,24 @@ export default function AdminDashboard() {
           >
             <FiBox className="sidebar-nav-icon" />
             <span className="sidebar-nav-text">Found Items</span>
+            {foundBadgeCount > 0 && !sidebarCollapsed && (
+              <span className="badge-pill" style={{ background: '#2ecc71', color: '#fff', borderRadius: '10px', padding: '2px 7px', fontSize: '11px', fontWeight: 'bold', marginLeft: 'auto' }}>
+                {foundBadgeCount}
+              </span>
+            )}
+          </button>
+
+          <button
+            className={`sidebar-nav-item ${currentTab === 'claimed' ? 'active' : ''}`}
+            onClick={() => handleNav('claimed')}
+          >
+            <FiCheckCircle className="sidebar-nav-icon" />
+            <span className="sidebar-nav-text">Claimed Items</span>
+            {(analytics?.total_claimed > 0 || claimedBadgeCount > 0) && !sidebarCollapsed && (
+              <span className="badge-pill" style={{ background: '#10b981', color: '#fff', borderRadius: '10px', padding: '2px 7px', fontSize: '11px', fontWeight: 'bold', marginLeft: 'auto' }}>
+                {analytics?.total_claimed ?? claimedBadgeCount}
+              </span>
+            )}
           </button>
 
           <button
@@ -912,19 +1228,6 @@ export default function AdminDashboard() {
           >
             <FiList className="sidebar-nav-icon" />
             <span className="sidebar-nav-text">Categories</span>
-          </button>
-
-          <button
-            className={`sidebar-nav-item ${currentTab === 'claim-requests' ? 'active' : ''}`}
-            onClick={() => handleNav('claim-requests')}
-          >
-            <FiFileText className="sidebar-nav-icon" />
-            <span className="sidebar-nav-text">Claim Requests</span>
-            {analytics?.pending_claims > 0 && !sidebarCollapsed && (
-              <span className="badge-pill" style={{ background: '#e74c3c', color: '#fff', borderRadius: '10px', padding: '2px 7px', fontSize: '11px', fontWeight: 'bold', marginLeft: 'auto' }}>
-                {analytics.pending_claims}
-              </span>
-            )}
           </button>
 
           <button
@@ -1079,20 +1382,20 @@ export default function AdminDashboard() {
                 <div className="admin-stats-grid">
                   <div className="admin-stat-card bg-primary-light">
                     <FiSearch className="admin-stat-icon" />
-                    <div className="admin-stat-val">{analytics?.total_lost ?? 0}</div>
+                    <div className="admin-stat-val">{analytics?.total_lost ?? lostBadgeCount}</div>
                     <p className="admin-stat-label">Pending Lost Items</p>
                   </div>
 
                   <div className="admin-stat-card bg-success-light">
                     <FiBox className="admin-stat-icon" />
-                    <div className="admin-stat-val">{analytics?.total_found ?? 0}</div>
+                    <div className="admin-stat-val">{analytics?.total_found ?? foundBadgeCount}</div>
                     <p className="admin-stat-label">Found Items</p>
                   </div>
 
-                  <div className="admin-stat-card bg-warning-light">
-                    <FiFileText className="admin-stat-icon" />
-                    <div className="admin-stat-val">{analytics?.total_claims ?? 0}</div>
-                    <p className="admin-stat-label">Claim Requests</p>
+                  <div className="admin-stat-card bg-claimed-light">
+                    <FiCheckCircle className="admin-stat-icon" />
+                    <div className="admin-stat-val">{analytics?.total_claimed ?? claimedBadgeCount}</div>
+                    <p className="admin-stat-label">Claimed Items</p>
                   </div>
 
                   <div className="admin-stat-card bg-purple-light">
@@ -1290,14 +1593,29 @@ export default function AdminDashboard() {
                         className="crud-tool-btn"
                         onClick={() =>
                           handleExportCSV(
-                            items.map((i) => ({
-                              Name: i.title,
-                              Category: i.category,
-                              Description: i.description,
-                              Date: i.date ? new Date(i.date).toLocaleDateString() : '',
-                              Location: i.location,
-                              Status: i.status,
-                            })),
+                            currentTab === 'lost-items'
+                              ? filteredData.map((i) => ({
+                                Item: i.title,
+                                ReportedBy: i.reportedBy?.name || i.contactInfo || '—',
+                                Category: i.category,
+                                Description: i.description,
+                                DateLost: i.date ? new Date(i.date).toLocaleDateString() : '—',
+                                Location: i.location,
+                                Status: i.status || 'Active',
+                              }))
+                              : filteredData.map((i) => {
+                                const activeClaim = getActiveClaim(i);
+                                const isFinderReportedLost = i.type === 'lost' && hasActiveFinder(i);
+                                return {
+                                  Item: i.title,
+                                  OriginallyReportedBy: i.reportedBy?.name || '—',
+                                  FoundBy: i.foundBy?.name || activeClaim?.fullName || activeClaim?.finder?.name || (i.type === 'found' ? i.reportedBy?.name : '—') || '—',
+                                  FinderStatus: isFinderReportedLost ? 'Finder Reported' : 'Reported',
+                                  ClaimStatus: activeClaim?.status || (i.type === 'found' ? (i.status || 'Active') : 'Contacted'),
+                                  FoundDate: activeClaim?.submittedAt ? new Date(activeClaim.submittedAt).toLocaleDateString() : (i.date ? new Date(i.date).toLocaleDateString() : '—'),
+                                  Location: i.location,
+                                };
+                              }),
                             currentTab === 'lost-items' ? 'lost_items' : 'found_items'
                           )
                         }
@@ -1312,44 +1630,39 @@ export default function AdminDashboard() {
 
                   {/* Table */}
                   <div className="table-responsive-wrapper">
-                    <table className="admin-crud-table">
-                      <thead>
-                        <tr>
-                          <th>ITEM NAME</th>
-                          {currentTab === 'lost-items' && <th>CATEGORY</th>}
-                          <th>DESCRIPTION</th>
-                          <th>{currentTab === 'lost-items' ? 'DATE LOST' : 'DATE FOUND'}</th>
-                          <th>LOCATION</th>
-                          {currentTab === 'found-items' && <th>IMAGE</th>}
-                          <th>STATUS</th>
-                          <th>ACTIONS</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {paginatedData.length === 0 ? (
+                    {currentTab === 'lost-items' ? (
+                      <table className="admin-crud-table">
+                        <thead>
                           <tr>
-                            <td colSpan={currentTab === 'found-items' ? 7 : 7} style={{ textAlign: 'center', padding: '30px', color: '#888' }}>
-                              No records found.
-                            </td>
+                            <th>IMAGE</th>
+                            <th>ITEM NAME</th>
+                            <th>REPORTED BY</th>
+                            <th>CATEGORY</th>
+                            <th>LOCATION</th>
+                            <th>DATE LOST</th>
+                            <th>STATUS</th>
+                            <th>ACTIONS</th>
                           </tr>
-                        ) : (
-                          paginatedData.map((item) => (
-                            <tr key={item._id}>
-                              <td style={{ fontWeight: 600 }}>{item.title}</td>
-                              {currentTab === 'lost-items' && <td>{item.category}</td>}
-                              <td style={{ maxWidth: '240px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                {item.description || '—'}
+                        </thead>
+                        <tbody>
+                          {paginatedData.length === 0 ? (
+                            <tr>
+                              <td colSpan={8} style={{ textAlign: 'center', padding: '30px', color: '#888' }}>
+                                No unresolved lost items found.
                               </td>
-                              <td>{item.date ? new Date(item.date).toLocaleDateString() : '—'}</td>
-                              <td>{item.location}</td>
-                              {currentTab === 'found-items' && (
+                            </tr>
+                          ) : (
+                            paginatedData.map((item) => (
+                              <tr key={item._id}>
                                 <td>
                                   {item.image ? (
                                     <>
                                       <img
                                         src={getImageUrl(item.image)}
                                         alt={item.title}
-                                        style={{ width: '40px', height: '40px', objectFit: 'cover', borderRadius: '4px' }}
+                                        className="item-thumbnail-img"
+                                        title="Click to preview image"
+                                        onClick={() => setPreviewImageModal({ url: getImageUrl(item.image), title: item.title })}
                                         onError={(e) => {
                                           e.currentTarget.style.display = 'none';
                                           if (e.currentTarget.nextElementSibling) {
@@ -1357,55 +1670,182 @@ export default function AdminDashboard() {
                                           }
                                         }}
                                       />
-                                      <span style={{ color: '#aaa', fontSize: '11px', display: 'none' }}>No image</span>
+                                      <span style={{ color: '#aaa', fontSize: '11px', display: 'none' }}>No Image</span>
                                     </>
                                   ) : (
-                                    <span style={{ color: '#aaa', fontSize: '11px' }}>No image</span>
+                                    <span style={{ color: '#aaa', fontSize: '11px' }}>No Image</span>
                                   )}
                                 </td>
-                              )}
-                              <td>
-                                <span className={`status-pill ${(item.status || 'pending').toLowerCase()}`}>
-                                  {item.status || 'Pending'}
-                                </span>
-                              </td>
-                              <td>
-                                <div className="action-buttons-group">
-                                  <button
-                                    className="action-icon-btn action-icon-view"
-                                    title="View"
-                                    onClick={() => handleOpenItemDetails(item)}
-                                  >
-                                    <FiEye />
-                                  </button>
-                                  <button
-                                    className="action-icon-btn action-icon-edit"
-                                    title="Edit"
-                                    onClick={() => handleOpenEditItem(item)}
-                                  >
-                                    <FiEdit />
-                                  </button>
-                                  <button
-                                    className="action-icon-btn action-icon-copy"
-                                    title="Duplicate / Copy"
-                                    onClick={() => handleDuplicateItem(item)}
-                                  >
-                                    <FiCopy />
-                                  </button>
-                                  <button
-                                    className="action-icon-btn action-icon-delete"
-                                    title="Delete"
-                                    onClick={() => handleDeleteItem(item._id)}
-                                  >
-                                    <FiTrash2 />
-                                  </button>
-                                </div>
+                                <td style={{ fontWeight: 600 }}>{item.title}</td>
+                                <td>{item.reportedBy?.name || item.contactInfo || '—'}</td>
+                                <td>{item.category}</td>
+                                <td>{item.location}</td>
+                                <td>{item.date ? new Date(item.date).toLocaleDateString() : '—'}</td>
+                                <td>
+                                  <span className={`status-pill ${(item.status || 'pending').toLowerCase()}`}>
+                                    {item.status || 'Pending'}
+                                  </span>
+                                </td>
+                                <td>
+                                  <div className="action-buttons-group">
+                                    <button
+                                      className="action-icon-btn action-icon-view"
+                                      title="View Details"
+                                      onClick={() => handleOpenItemDetails(item)}
+                                    >
+                                      <FiEye />
+                                    </button>
+                                    <button
+                                      className="action-icon-btn action-icon-edit"
+                                      title="Edit"
+                                      onClick={() => handleOpenEditItem(item)}
+                                    >
+                                      <FiEdit />
+                                    </button>
+                                    <button
+                                      className="action-icon-btn action-icon-copy"
+                                      title="Duplicate / Copy"
+                                      onClick={() => handleDuplicateItem(item)}
+                                    >
+                                      <FiCopy />
+                                    </button>
+                                    <button
+                                      className="action-icon-btn action-icon-delete"
+                                      title="Delete"
+                                      onClick={() => handleDeleteItem(item._id)}
+                                    >
+                                      <FiTrash2 />
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                    ) : (
+                      <table className="admin-crud-table">
+                        <thead>
+                          <tr>
+                            <th>IMAGE</th>
+                            <th>ITEM NAME</th>
+                            <th>REPORTED BY / OWNER</th>
+                            <th>FOUND BY / FINDER</th>
+                            <th>FINDER STATUS</th>
+                            <th>CLAIM STATUS</th>
+                            <th>DATE</th>
+                            <th>ACTIONS</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {paginatedData.length === 0 ? (
+                            <tr>
+                              <td colSpan={8} style={{ textAlign: 'center', padding: '30px', color: '#888' }}>
+                                No found items or finder reports found.
                               </td>
                             </tr>
-                          ))
-                        )}
-                      </tbody>
-                    </table>
+                          ) : (
+                            paginatedData.map((item) => {
+                              const activeClaim = getActiveClaim(item);
+                              const isFinderReportedLost = item.type === 'lost' && hasActiveFinder(item);
+                              const originalOwner = item.reportedBy?.name || '—';
+                              const foundBy =
+                                item.foundBy?.name ||
+                                activeClaim?.fullName ||
+                                activeClaim?.finder?.name ||
+                                (item.type === 'found' ? item.reportedBy?.name : '—') ||
+                                '—';
+                              const finderStatusText = isFinderReportedLost ? 'Finder Reported' : 'Reported';
+                              const claimStatusText =
+                                activeClaim?.status ||
+                                (item.type === 'found' ? item.status || 'Active' : 'Contacted');
+                              const foundDate = activeClaim?.submittedAt
+                                ? new Date(activeClaim.submittedAt).toLocaleDateString()
+                                : item.date
+                                  ? new Date(item.date).toLocaleDateString()
+                                  : '—';
+                              const displayImage = activeClaim?.image || item.image;
+
+                              return (
+                                <tr key={item._id}>
+                                  <td>
+                                    {displayImage ? (
+                                      <>
+                                        <img
+                                          src={getImageUrl(displayImage)}
+                                          alt={item.title}
+                                          className="item-thumbnail-img"
+                                          title="Click to preview image"
+                                          onClick={() => setPreviewImageModal({ url: getImageUrl(displayImage), title: item.title })}
+                                          onError={(e) => {
+                                            e.currentTarget.style.display = 'none';
+                                            if (e.currentTarget.nextElementSibling) {
+                                              e.currentTarget.nextElementSibling.style.display = 'inline';
+                                            }
+                                          }}
+                                        />
+                                        <span style={{ color: '#aaa', fontSize: '11px', display: 'none' }}>No image</span>
+                                      </>
+                                    ) : (
+                                      <span style={{ color: '#aaa', fontSize: '11px' }}>No image</span>
+                                    )}
+                                  </td>
+                                  <td style={{ fontWeight: 600 }}>{item.title}</td>
+                                  <td>{originalOwner}</td>
+                                  <td style={{ fontWeight: 500, color: '#0369a1' }}>{foundBy}</td>
+                                  <td>
+                                    <span
+                                      className={`status-pill ${isFinderReportedLost ? 'finder-found' : 'approved'}`}
+                                      style={{ fontSize: '11px', padding: '3px 8px' }}
+                                    >
+                                      {finderStatusText}
+                                    </span>
+                                  </td>
+                                  <td>
+                                    <span className={`status-pill ${(claimStatusText || 'pending').toLowerCase()}`}>
+                                      {claimStatusText}
+                                    </span>
+                                  </td>
+                                  <td>{foundDate}</td>
+                                  <td>
+                                    <div className="action-buttons-group">
+                                      <button
+                                        className="action-icon-btn action-icon-view"
+                                        title="View Details"
+                                        onClick={() => handleOpenItemDetails(item)}
+                                      >
+                                        <FiEye />
+                                      </button>
+                                      <button
+                                        className="action-icon-btn action-icon-edit"
+                                        title="Edit"
+                                        onClick={() => handleOpenEditItem(item)}
+                                      >
+                                        <FiEdit />
+                                      </button>
+                                      <button
+                                        className="action-icon-btn action-icon-copy"
+                                        title="Duplicate / Copy"
+                                        onClick={() => handleDuplicateItem(item)}
+                                      >
+                                        <FiCopy />
+                                      </button>
+                                      <button
+                                        className="action-icon-btn action-icon-delete"
+                                        title="Delete"
+                                        onClick={() => handleDeleteItem(item._id)}
+                                      >
+                                        <FiTrash2 />
+                                      </button>
+                                    </div>
+                                  </td>
+                                </tr>
+                              );
+                            })
+                          )}
+                        </tbody>
+                      </table>
+                    )}
                   </div>
 
                   {/* Bottom Search & Filter Bar */}
@@ -1492,256 +1932,226 @@ export default function AdminDashboard() {
           )}
 
           {/* ========================================================
-              VIEW 3: CLAIM REQUESTS
+              VIEW: CLAIMED (FINAL RECOVERED ITEMS)
              ======================================================== */}
-          {currentTab === 'claim-requests' && (
+          {currentTab === 'claimed' && (
             <div className="crud-page-container">
-              {claimFormOpen ? (
-                <div className="admin-form-container">
-                  <h3 className="admin-form-title">ADD CLAIM REQUEST</h3>
-                  <form onSubmit={handleSaveClaim}>
-                    <div className="form-group-row">
-                      <label className="form-label-bold">Full Name <span className="required-star">*</span></label>
-                      <input
-                        type="text"
-                        className="form-control-input"
-                        value={claimFormData.fullName}
-                        onChange={(e) => setClaimFormData({ ...claimFormData, fullName: e.target.value })}
-                        required
-                      />
-                    </div>
-                    <div className="form-group-row">
-                      <label className="form-label-bold">Email Address <span className="required-star">*</span></label>
-                      <input
-                        type="email"
-                        className="form-control-input"
-                        value={claimFormData.email}
-                        onChange={(e) => setClaimFormData({ ...claimFormData, email: e.target.value })}
-                        required
-                      />
-                    </div>
-                    <div className="form-group-row">
-                      <label className="form-label-bold">Phone Number <span className="required-star">*</span></label>
-                      <input
-                        type="text"
-                        className="form-control-input"
-                        value={claimFormData.phone}
-                        onChange={(e) => setClaimFormData({ ...claimFormData, phone: e.target.value })}
-                        required
-                      />
-                    </div>
-                    <div className="form-group-row">
-                      <label className="form-label-bold">Claimed Item Name</label>
-                      <input
-                        type="text"
-                        className="form-control-input"
-                        placeholder="e.g. Titan Watch, Black Backpack"
-                        value={claimFormData.itemName}
-                        onChange={(e) => setClaimFormData({ ...claimFormData, itemName: e.target.value })}
-                      />
-                    </div>
-                    <div className="form-group-row">
-                      <label className="form-label-bold">Additional Details</label>
-                      <textarea
-                        className="form-control-textarea"
-                        placeholder="Proof of ownership details..."
-                        value={claimFormData.additionalDetails}
-                        onChange={(e) => setClaimFormData({ ...claimFormData, additionalDetails: e.target.value })}
-                      ></textarea>
-                    </div>
-                    <div className="form-group-row">
-                      <label className="form-label-bold">Proof Image</label>
-                      <input
-                        type="file"
-                        className="form-file-input"
-                        accept="image/*"
-                        onChange={(e) => setClaimFormData({ ...claimFormData, imageFile: e.target.files[0] })}
-                      />
-                    </div>
-                    <div className="form-buttons-row">
-                      <button type="submit" className="btn-form-save">Save Claim</button>
-                      <button type="button" className="btn-form-cancel" onClick={() => setClaimFormOpen(false)}>Cancel</button>
-                    </div>
-                  </form>
+              <div className="crud-header-actions">
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 700, color: '#1e293b' }}>
+                    Claimed Items
+                  </h3>
+                  <p style={{ margin: '4px 0 0 0', fontSize: '13px', color: '#64748b' }}>
+                    Final recovery complete (Owner Found, Finder Found, and Normal Found reports)
+                  </p>
                 </div>
-              ) : (
-                <>
-                  <div className="crud-header-actions">
-                    <button className="crud-btn-primary" onClick={() => setClaimFormOpen(true)}>
-                      <FiPlus /> Add Claim Request
-                    </button>
-                    <div className="crud-tools-right">
-                      <button
-                        className="crud-tool-btn"
-                        onClick={() =>
-                          handleExportCSV(
-                            claims.map((c) => ({
-                              ID: c._id,
-                              Name: c.fullName,
-                              Email: c.email,
-                              Phone: c.phone,
-                              Item: c.itemName || c.item?.title || '—',
-                              Status: c.status,
-                              SubmittedAt: new Date(c.submittedAt).toLocaleString(),
-                            })),
-                            'claim_requests'
-                          )
-                        }
-                      >
-                        <FiDownload /> Export
-                      </button>
-                      <button className="crud-tool-btn" onClick={handlePrint}>
-                        <FiPrinter /> Print
-                      </button>
-                    </div>
-                  </div>
 
-                  <div className="table-responsive-wrapper">
-                    <table className="admin-crud-table">
-                      <thead>
-                        <tr>
-                          <th>ID</th>
-                          <th>FULL NAME</th>
-                          <th>EMAIL ADDRESS</th>
-                          <th>PHONE NUMBER</th>
-                          <th>IMAGE</th>
-                          <th>ADDITIONAL DETAILS</th>
-                          <th>STATUS</th>
-                          <th>SUBMITTED AT</th>
-                          <th>ACTIONS</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {paginatedData.length === 0 ? (
-                          <tr>
-                            <td colSpan="9" style={{ textAlign: 'center', padding: '30px', color: '#888' }}>
-                              No claim requests found.
+                <div className="crud-tools-right">
+                  <button
+                    className="crud-tool-btn"
+                    onClick={() =>
+                      handleExportCSV(
+                        filteredData.map((i) => ({
+                          Item: i.title,
+                          ReportedBy: i.reportedBy?.name || '—',
+                          RecoveredOrFoundBy: getRecoveredByLabel(i),
+                          RecoveryType: getRecoveryTypeLabel(i),
+                          Status: 'Resolved',
+                          ResolutionDate: i.resolvedAt
+                            ? new Date(i.resolvedAt).toLocaleDateString()
+                            : i.updatedAt
+                              ? new Date(i.updatedAt).toLocaleDateString()
+                              : '—',
+                        })),
+                        'claimed_items'
+                      )
+                    }
+                  >
+                    <FiDownload /> Export
+                  </button>
+                  <button className="crud-tool-btn" onClick={handlePrint}>
+                    <FiPrinter /> Print
+                  </button>
+                </div>
+              </div>
+
+              <div className="table-responsive-wrapper">
+                <table className="admin-crud-table">
+                  <thead>
+                    <tr>
+                      <th>IMAGE</th>
+                      <th>ITEM NAME</th>
+                      <th>REPORTED BY</th>
+                      <th>RECOVERED / FOUND BY</th>
+                      <th>RECOVERY TYPE</th>
+                      <th>STATUS</th>
+                      <th>RESOLUTION DATE</th>
+                      <th>ACTIONS</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {paginatedData.length === 0 ? (
+                      <tr>
+                        <td colSpan={8} style={{ textAlign: 'center', padding: '30px', color: '#888' }}>
+                          No claimed items found.
+                        </td>
+                      </tr>
+                    ) : (
+                      paginatedData.map((item) => {
+                        const recType = getRecoveryTypeLabel(item);
+                        const recBy = getRecoveredByLabel(item);
+                        const resDate = item.resolvedAt
+                          ? new Date(item.resolvedAt).toLocaleDateString()
+                          : item.updatedAt
+                            ? new Date(item.updatedAt).toLocaleDateString()
+                            : '—';
+
+                        return (
+                          <tr key={item._id}>
+                            <td>
+                              {item.image ? (
+                                <>
+                                  <img
+                                    src={getImageUrl(item.image)}
+                                    alt={item.title}
+                                    className="item-thumbnail-img"
+                                    title="Click to preview image"
+                                    onClick={() => setPreviewImageModal({ url: getImageUrl(item.image), title: item.title })}
+                                    onError={(e) => {
+                                      e.currentTarget.style.display = 'none';
+                                      if (e.currentTarget.nextElementSibling) {
+                                        e.currentTarget.nextElementSibling.style.display = 'inline';
+                                      }
+                                    }}
+                                  />
+                                  <span style={{ color: '#aaa', fontSize: '11px', display: 'none' }}>No image</span>
+                                </>
+                              ) : (
+                                <span style={{ color: '#aaa', fontSize: '11px' }}>No image</span>
+                              )}
+                            </td>
+                            <td style={{ fontWeight: 600 }}>{item.title}</td>
+                            <td>{item.reportedBy?.name || '—'}</td>
+                            <td style={{ fontWeight: 500 }}>{recBy}</td>
+                            <td>
+                              <span
+                                className={`status-pill ${recType === 'Owner Found Item'
+                                    ? 'owner-found'
+                                    : recType === 'Finder Found Item'
+                                      ? 'finder-found'
+                                      : 'normal-found'
+                                  }`}
+                                style={{ fontSize: '11px', padding: '3px 8px' }}
+                              >
+                                {recType}
+                              </span>
+                            </td>
+                            <td>
+                              <span className="status-pill resolved" style={{ background: '#dcfce7', color: '#15803d', fontWeight: 700 }}>
+                                Resolved
+                              </span>
+                            </td>
+                            <td>{resDate}</td>
+                            <td>
+                              <div className="action-buttons-group">
+                                <button
+                                  className="action-icon-btn action-icon-view"
+                                  title="View Details"
+                                  onClick={() => handleOpenItemDetails(item)}
+                                >
+                                  <FiEye />
+                                </button>
+                                <button
+                                  className="action-icon-btn action-icon-delete"
+                                  title="Delete Record"
+                                  onClick={() => handleDeleteItem(item._id)}
+                                >
+                                  <FiTrash2 />
+                                </button>
+                              </div>
                             </td>
                           </tr>
-                        ) : (
-                          paginatedData.map((c) => (
-                            <tr key={c._id}>
-                              <td style={{ fontSize: '11px', fontFamily: 'monospace' }}>
-                                {String(c._id).slice(-6)}
-                              </td>
-                              <td style={{ fontWeight: 600 }}>{c.fullName}</td>
-                              <td>{c.email}</td>
-                              <td>{c.phone}</td>
-                              <td>
-                                {c.image ? (
-                                  <>
-                                    <img
-                                      src={getImageUrl(c.image)}
-                                      alt="Proof"
-                                      style={{ width: '38px', height: '38px', objectFit: 'cover', borderRadius: '4px' }}
-                                      onError={(e) => {
-                                        e.currentTarget.style.display = 'none';
-                                        if (e.currentTarget.nextElementSibling) {
-                                          e.currentTarget.nextElementSibling.style.display = 'inline';
-                                        }
-                                      }}
-                                    />
-                                    <span style={{ color: '#aaa', fontSize: '11px', display: 'none' }}>None</span>
-                                  </>
-                                ) : (
-                                  <span style={{ color: '#aaa', fontSize: '11px' }}>None</span>
-                                )}
-                              </td>
-                              <td style={{ maxWidth: '180px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                {c.additionalDetails || '—'}
-                              </td>
-                              <td>
-                                <span className={`status-pill ${(c.status || 'pending').toLowerCase()}`}>
-                                  {c.status || 'Pending'}
-                                </span>
-                              </td>
-                              <td style={{ fontSize: '12px' }}>
-                                {new Date(c.submittedAt || c.createdAt).toLocaleDateString()}
-                              </td>
-                              <td>
-                                <div className="action-buttons-group">
-                                  <button
-                                    className="action-icon-btn action-icon-view"
-                                    title="View Claim Details"
-                                    onClick={() => handleOpenClaimDetails(c)}
-                                  >
-                                    <FiEye />
-                                  </button>
-                                  {c.status !== 'approved' && (
-                                    <button
-                                      className="action-icon-btn action-icon-approve"
-                                      title="Approve Claim"
-                                      onClick={() => handleUpdateClaimStatus(c._id, 'approved')}
-                                    >
-                                      <FiCheck />
-                                    </button>
-                                  )}
-                                  {c.status !== 'rejected' && (
-                                    <button
-                                      className="action-icon-btn action-icon-reject"
-                                      title="Reject Claim"
-                                      onClick={() => handleUpdateClaimStatus(c._id, 'rejected')}
-                                    >
-                                      <FiX />
-                                    </button>
-                                  )}
-                                  <button
-                                    className="action-icon-btn action-icon-delete"
-                                    title="Delete Claim"
-                                    onClick={() => handleDeleteClaim(c._id)}
-                                  >
-                                    <FiTrash2 />
-                                  </button>
-                                </div>
-                              </td>
-                            </tr>
-                          ))
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
 
-                  <div className="crud-bottom-bar">
-                    <div className="crud-search-block">
-                      <span className="crud-search-label">Search:</span>
-                      <input
-                        type="text"
-                        className="crud-search-input"
-                        placeholder="Search claims..."
-                        value={searchTerm}
-                        onChange={(e) => setSearchTerm(e.target.value)}
-                      />
-                      <select
-                        className="crud-search-select"
-                        value={statusFilter}
-                        onChange={(e) => setStatusFilter(e.target.value)}
-                      >
-                        <option value="all">All Statuses</option>
-                        <option value="pending">Pending</option>
-                        <option value="approved">Approved</option>
-                        <option value="rejected">Rejected</option>
-                      </select>
-                      <button className="crud-btn-clear" onClick={() => { setSearchTerm(''); setStatusFilter('all'); }}>
-                        Clear filtering
-                      </button>
-                    </div>
+              {/* Bottom Search & Filter Bar */}
+              <div className="crud-bottom-bar">
+                <div className="crud-search-block">
+                  <span className="crud-search-label">Search:</span>
+                  <input
+                    type="text"
+                    className="crud-search-input"
+                    placeholder="Search claimed items..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                  />
+                  <select
+                    className="crud-search-select"
+                    value={searchField}
+                    onChange={(e) => setSearchField(e.target.value)}
+                  >
+                    <option value="all">Search all</option>
+                    <option value="title">Item Name</option>
+                    <option value="reportedBy">Reported By</option>
+                    <option value="foundBy">Recovered / Found By</option>
+                  </select>
+                  <button className="crud-btn-search" onClick={() => setCurrentPage(1)}>
+                    Search
+                  </button>
+                  <button
+                    className="crud-btn-clear"
+                    onClick={() => {
+                      setSearchTerm('');
+                      setSearchField('all');
+                      setCurrentPage(1);
+                    }}
+                  >
+                    Clear filtering
+                  </button>
+                </div>
 
-                    <div className="crud-pagination-block">
-                      <span className="crud-page-info">
-                        Showing {totalEntries === 0 ? 0 : (currentPage - 1) * pageSize + 1} to{' '}
-                        {Math.min(currentPage * pageSize, totalEntries)} of {totalEntries} entries
-                      </span>
-                      <div className="crud-pagination-nav">
-                        <button className="crud-page-btn" disabled={currentPage === 1} onClick={() => setCurrentPage(1)}>First</button>
-                        <button className="crud-page-btn" disabled={currentPage === 1} onClick={() => setCurrentPage((p) => p - 1)}>Previous</button>
-                        <button className="crud-page-btn active">{currentPage}</button>
-                        <button className="crud-page-btn" disabled={currentPage >= totalPages} onClick={() => setCurrentPage((p) => p + 1)}>Next</button>
-                        <button className="crud-page-btn" disabled={currentPage >= totalPages} onClick={() => setCurrentPage(totalPages)}>Last</button>
-                      </div>
-                    </div>
+                <div className="crud-pagination-block">
+                  <span className="crud-page-info">
+                    Showing {totalEntries === 0 ? 0 : (currentPage - 1) * pageSize + 1} to{' '}
+                    {Math.min(currentPage * pageSize, totalEntries)} of {totalEntries} entries
+                  </span>
+                  <div className="crud-pagination-nav">
+                    <button
+                      className="crud-page-btn"
+                      disabled={currentPage === 1}
+                      onClick={() => setCurrentPage(1)}
+                    >
+                      First
+                    </button>
+                    <button
+                      className="crud-page-btn"
+                      disabled={currentPage === 1}
+                      onClick={() => setCurrentPage((p) => p - 1)}
+                    >
+                      Previous
+                    </button>
+                    <button className="crud-page-btn active">{currentPage}</button>
+                    <button
+                      className="crud-page-btn"
+                      disabled={currentPage >= totalPages}
+                      onClick={() => setCurrentPage((p) => p + 1)}
+                    >
+                      Next
+                    </button>
+                    <button
+                      className="crud-page-btn"
+                      disabled={currentPage >= totalPages}
+                      onClick={() => setCurrentPage(totalPages)}
+                    >
+                      Last
+                    </button>
                   </div>
-                </>
-              )}
+                </div>
+              </div>
             </div>
           )}
 
@@ -2436,6 +2846,45 @@ export default function AdminDashboard() {
               </span>
             </div>
 
+            <div className="detail-row">
+              <span className="detail-label">Recovery Type:</span>
+              <span className="detail-value">
+                {selectedClaim.item?.recoveryType === 'owner_found'
+                  ? 'Owner Found Item (Self-Recovery)'
+                  : (selectedClaim.status === 'resolved' || selectedClaim.status === 'approved'
+                    ? 'Student Finder Recovery'
+                    : 'Standard Claim')}
+              </span>
+            </div>
+
+            {selectedClaim.ownerConfirmedAt && (
+              <div className="detail-row">
+                <span className="detail-label">Owner Confirmation:</span>
+                <span className="detail-value" style={{ color: '#059669', fontWeight: 600 }}>
+                  Verified via OTP on {new Date(selectedClaim.ownerConfirmedAt).toLocaleString()}
+                </span>
+              </div>
+            )}
+
+            {(selectedClaim.status === 'rejected' || selectedClaim.status === 'Admin Rejected' || selectedClaim.rejectedAt) && (
+              <div className="detail-row">
+                <span className="detail-label">Rejected Finder Attempt:</span>
+                <span className="detail-value" style={{ color: '#dc2626', fontWeight: 600 }}>
+                  Report rejected by owner on {new Date(selectedClaim.rejectedAt || selectedClaim.updatedAt).toLocaleString()}
+                </span>
+              </div>
+            )}
+
+            {selectedClaim.adminRejectedAt && (
+              <div className="detail-row">
+                <span className="detail-label">Admin Rejection:</span>
+                <span className="detail-value" style={{ color: '#dc2626' }}>
+                  Rejected on {new Date(selectedClaim.adminRejectedAt).toLocaleString()}
+                  {selectedClaim.adminRejectionReason ? ` (${selectedClaim.adminRejectionReason})` : ''}
+                </span>
+              </div>
+            )}
+
             {selectedClaim.image && (
               <div style={{ marginTop: '16px' }}>
                 <span className="detail-label" style={{ display: 'block', marginBottom: '8px' }}>Proof Image:</span>
@@ -2458,18 +2907,7 @@ export default function AdminDashboard() {
               <button className="crud-tool-btn" onClick={() => setClaimModalOpen(false)}>
                 <FiArrowLeft /> Back to list
               </button>
-              <div style={{ display: 'flex', gap: '8px' }}>
-                {selectedClaim.status !== 'approved' && (
-                  <button className="btn-form-save" onClick={() => handleUpdateClaimStatus(selectedClaim._id, 'approved')}>
-                    Approve Claim
-                  </button>
-                )}
-                {selectedClaim.status !== 'rejected' && (
-                  <button className="admin-logout-btn" onClick={() => handleUpdateClaimStatus(selectedClaim._id, 'rejected')}>
-                    Reject Claim
-                  </button>
-                )}
-              </div>
+
             </div>
           </div>
         </div>
@@ -2614,45 +3052,111 @@ export default function AdminDashboard() {
                   : '—'}
               </span>
             </div>
-            <div className="detail-row">
-              <span className="detail-label">Found By / Finder:</span>
-              <span className="detail-value">
-                {viewDetailsItem.foundBy?.name
-                  ? `${viewDetailsItem.foundBy.name} (${viewDetailsItem.foundBy.email || ''}${viewDetailsItem.foundBy.phone ? ' | ' + viewDetailsItem.foundBy.phone : ''})`
-                  : (viewDetailsItem.claims?.[0]?.finder?.name
-                    ? `${viewDetailsItem.claims[0].finder.name} (${viewDetailsItem.claims[0].finder.email || ''})`
-                    : (viewDetailsItem.claims?.[0]?.fullName
-                      ? `${viewDetailsItem.claims[0].fullName} (${viewDetailsItem.claims[0].email || ''})`
-                      : '—'))}
-              </span>
-            </div>
-            {(viewDetailsItem.foundBy?.email || viewDetailsItem.claims?.[0]?.email || viewDetailsItem.claims?.[0]?.phone) && (
+
+            {isResolvedItem(viewDetailsItem) && (
               <div className="detail-row">
-                <span className="detail-label">Finder Contact:</span>
-                <span className="detail-value">
-                  {viewDetailsItem.claims?.[0]?.email || viewDetailsItem.foundBy?.email || '—'}
-                  {(viewDetailsItem.claims?.[0]?.phone || viewDetailsItem.foundBy?.phone) ? ` | ${viewDetailsItem.claims?.[0]?.phone || viewDetailsItem.foundBy?.phone}` : ''}
-                </span>
-              </div>
-            )}
-            {(viewDetailsItem.claims?.[0]?.finderMessage || viewDetailsItem.claims?.[0]?.additionalDetails) && (
-              <div className="detail-row">
-                <span className="detail-label">Finder Message:</span>
-                <span className="detail-value">
-                  {viewDetailsItem.claims[0].finderMessage || viewDetailsItem.claims[0].additionalDetails}
-                </span>
-              </div>
-            )}
-            {viewDetailsItem.claims && viewDetailsItem.claims.length > 0 && (
-              <div className="detail-row">
-                <span className="detail-label">Claim Status:</span>
-                <span className="detail-value">
-                  <span className={`status-pill ${(viewDetailsItem.claims[0].status || 'pending').toLowerCase()}`}>
-                    {viewDetailsItem.claims[0].status}
+                <span className="detail-label">Recovery Type:</span>
+                <span className="detail-value" style={{ fontWeight: 600 }}>
+                  <span
+                    className={`status-pill ${getRecoveryTypeLabel(viewDetailsItem) === 'Owner Found Item'
+                        ? 'owner-found'
+                        : getRecoveryTypeLabel(viewDetailsItem) === 'Finder Found Item'
+                          ? 'finder-found'
+                          : 'normal-found'
+                      }`}
+                  >
+                    {getRecoveryTypeLabel(viewDetailsItem)}
                   </span>
                 </span>
               </div>
             )}
+
+            {/* Current Found By / Finder (distinguishing current active finder vs rejected vs resolved final finder) */}
+            <div className="detail-row">
+              <span className="detail-label">Current Found By / Finder:</span>
+              <span className="detail-value" style={{ fontWeight: 600 }}>
+                {(() => {
+                  const isResolved = (viewDetailsItem.status || '').toLowerCase() === 'resolved';
+                  const activeClaim = viewDetailsItem.claims?.find((c) =>
+                    ['Contacted', 'pending', 'Pending Owner Confirmation', 'approved'].includes(c.status)
+                  );
+                  const resolvedClaim = viewDetailsItem.claims?.find((c) => c.status === 'resolved');
+
+                  if (isResolved) {
+                    if (viewDetailsItem.recoveryType === 'owner_found') {
+                      return (
+                        <span style={{ color: '#059669', fontWeight: 700 }}>
+                          Owner ({viewDetailsItem.recoveredBy?.name || viewDetailsItem.reportedBy?.name || 'Owner'}) — Owner Found Item
+                        </span>
+                      );
+                    }
+                    const finalFinderName = viewDetailsItem.foundBy?.name || viewDetailsItem.claimedBy?.name || resolvedClaim?.fullName || resolvedClaim?.finder?.name || 'Finder';
+                    return (
+                      <span style={{ color: '#059669' }}>
+                        {finalFinderName} (Final Resolved Finder)
+                      </span>
+                    );
+                  }
+
+                  if (viewDetailsItem.foundBy?.name || activeClaim) {
+                    const activeName = viewDetailsItem.foundBy?.name || activeClaim?.fullName || activeClaim?.finder?.name || 'Student';
+                    return (
+                      <span style={{ color: '#0284c7' }}>
+                        {activeName} (Current Active Finder - Finder Reported)
+                      </span>
+                    );
+                  }
+
+                  return <span style={{ color: '#64748b' }}>None (Active search / No active finder)</span>;
+                })()}
+              </span>
+            </div>
+
+            {/* Current Claim Status */}
+            <div className="detail-row">
+              <span className="detail-label">Current Claim Status:</span>
+              <span className="detail-value">
+                {(() => {
+                  const activeClaim = viewDetailsItem.claims?.find((c) =>
+                    ['Contacted', 'pending', 'Pending Owner Confirmation', 'approved'].includes(c.status)
+                  );
+                  const resolvedClaim = viewDetailsItem.claims?.find((c) => c.status === 'resolved');
+                  const latest = activeClaim || resolvedClaim || viewDetailsItem.claims?.[0];
+                  if (!latest) return <span style={{ color: '#94a3b8' }}>No claims submitted</span>;
+                  return (
+                    <span className={`status-pill ${(latest.status || 'pending').toLowerCase()}`}>
+                      {latest.status}
+                    </span>
+                  );
+                })()}
+              </span>
+            </div>
+
+            {/* Current Finder Message */}
+            <div className="detail-row">
+              <span className="detail-label">Current Finder Message:</span>
+              <span className="detail-value">
+                {(() => {
+                  const activeClaim = viewDetailsItem.claims?.find((c) =>
+                    ['Contacted', 'pending', 'Pending Owner Confirmation', 'approved'].includes(c.status)
+                  );
+                  const latest = activeClaim || viewDetailsItem.claims?.[0];
+                  return latest?.finderMessage || latest?.additionalDetails || 'None provided';
+                })()}
+              </span>
+            </div>
+
+            {/* Claim Date */}
+            <div className="detail-row">
+              <span className="detail-label">Claim Date:</span>
+              <span className="detail-value">
+                {viewDetailsItem.claims?.[0]?.submittedAt || viewDetailsItem.claims?.[0]?.createdAt
+                  ? new Date(viewDetailsItem.claims[0].submittedAt || viewDetailsItem.claims[0].createdAt).toLocaleString()
+                  : '—'}
+              </span>
+            </div>
+
+            {/* Resolution Date */}
             <div className="detail-row">
               <span className="detail-label">Resolution Date:</span>
               <span className="detail-value">
@@ -2660,17 +3164,122 @@ export default function AdminDashboard() {
                   ? new Date(viewDetailsItem.resolvedAt).toLocaleString()
                   : ((viewDetailsItem.status || '').toLowerCase() === 'resolved'
                     ? new Date(viewDetailsItem.updatedAt).toLocaleString()
-                    : 'Not resolved')}
+                    : 'Not resolved yet')}
               </span>
             </div>
-            <div className="detail-row">
-              <span className="detail-label">Resolution History:</span>
-              <span className="detail-value">
-                {(viewDetailsItem.status || '').toLowerCase() === 'resolved'
-                  ? `Item officially recovered and marked Resolved on ${new Date(viewDetailsItem.resolvedAt || viewDetailsItem.updatedAt).toLocaleString()}`
-                  : `Item status is ${viewDetailsItem.status || 'Active'}`}
-              </span>
-            </div>
+
+            {/* Owner Self-Recovery Audit / History Card (Requirement: Admin Dashboard) */}
+            {viewDetailsItem.recoveryType === 'owner_found' && (
+              <div
+                style={{
+                  marginTop: '16px',
+                  marginBottom: '16px',
+                  padding: '14px 16px',
+                  background: '#f0fdf4',
+                  border: '1.5px solid #86efac',
+                  borderRadius: '8px',
+                }}
+              >
+                <div style={{ fontWeight: 700, color: '#15803d', fontSize: '0.95rem', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <FiCheckCircle /> Owner Self-Recovery Record (Audit & History)
+                </div>
+                <div className="detail-row">
+                  <span className="detail-label">Recovery Type:</span>
+                  <span className="detail-value" style={{ fontWeight: 700, color: '#059669' }}>
+                    Owner Found Item
+                  </span>
+                </div>
+                <div className="detail-row">
+                  <span className="detail-label">Recovered By:</span>
+                  <span className="detail-value" style={{ fontWeight: 600 }}>
+                    Owner ({viewDetailsItem.recoveredBy?.name || viewDetailsItem.reportedBy?.name || 'Owner'})
+                  </span>
+                </div>
+                <div className="detail-row">
+                  <span className="detail-label">Owner Confirmation:</span>
+                  <span className="detail-value" style={{ color: '#15803d', fontWeight: 600 }}>
+                    Confirmed {viewDetailsItem.ownerConfirmedAt ? `(${new Date(viewDetailsItem.ownerConfirmedAt).toLocaleString()})` : 'Confirmed'}
+                  </span>
+                </div>
+                <div className="detail-row">
+                  <span className="detail-label">OTP Verified:</span>
+                  <span className="detail-value" style={{ color: '#15803d', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                    <FiCheck /> Verified (6-digit OTP verified)
+                  </span>
+                </div>
+                <div className="detail-row">
+                  <span className="detail-label">Resolution Date:</span>
+                  <span className="detail-value">
+                    {viewDetailsItem.resolvedAt
+                      ? new Date(viewDetailsItem.resolvedAt).toLocaleString()
+                      : (viewDetailsItem.updatedAt ? new Date(viewDetailsItem.updatedAt).toLocaleString() : '—')}
+                  </span>
+                </div>
+                <div className="detail-row">
+                  <span className="detail-label">Status:</span>
+                  <span className="detail-value">
+                    <span className="status-pill resolved" style={{ background: '#dcfce7', color: '#15803d', fontWeight: 700 }}>
+                      Resolved
+                    </span>
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* Finder Attempts & History (Requirement 7) */}
+            {viewDetailsItem.claims && viewDetailsItem.claims.length > 0 && (
+              <div style={{ marginTop: '16px', borderTop: '1px solid #e2e8f0', paddingTop: '12px' }}>
+                <span className="detail-label" style={{ display: 'block', marginBottom: '8px', fontWeight: 700, color: '#0f172a' }}>
+                  Finder Attempts ({viewDetailsItem.claims.length})
+                </span>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  {viewDetailsItem.claims.map((attempt, index) => {
+                    const isRejected = attempt.status === 'rejected';
+                    const isResolved = attempt.status === 'resolved';
+                    return (
+                      <div
+                        key={attempt._id || index}
+                        style={{
+                          padding: '10px 12px',
+                          borderRadius: '6px',
+                          border: `1px solid ${isRejected ? '#fecaca' : isResolved ? '#86efac' : '#bae6fd'}`,
+                          background: isRejected ? '#fef2f2' : isResolved ? '#f0fdf4' : '#f0f9ff',
+                          fontSize: '12px',
+                        }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                          <span style={{ fontWeight: 700, color: '#1e293b' }}>
+                            {index + 1}. {attempt.fullName || attempt.finder?.name || 'Student'} - {attempt.status}
+                          </span>
+                          <span className={`status-pill ${(attempt.status || 'pending').toLowerCase()}`}>
+                            {attempt.status}
+                          </span>
+                        </div>
+                        <div style={{ color: '#64748b' }}>
+                          Date: {new Date(attempt.submittedAt || attempt.createdAt).toLocaleString()}
+                          {attempt.rejectedAt && (
+                            <span> | Rejected on: {new Date(attempt.rejectedAt).toLocaleString()}</span>
+                          )}
+                          {attempt.resolvedAt && (
+                            <span> | Resolved on: {new Date(attempt.resolvedAt).toLocaleString()}</span>
+                          )}
+                        </div>
+                        {(attempt.email || attempt.phone) && (
+                          <div style={{ color: '#475569', marginTop: '3px' }}>
+                            Contact: {attempt.email || '—'}{attempt.phone ? ` | ${attempt.phone}` : ''}
+                          </div>
+                        )}
+                        {(attempt.finderMessage || attempt.additionalDetails) && (
+                          <div style={{ color: '#334155', fontStyle: 'italic', marginTop: '4px' }}>
+                            "{attempt.finderMessage || attempt.additionalDetails}"
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
             {viewDetailsItem.image && (
               <div style={{ marginTop: '12px' }}>
                 <span className="detail-label" style={{ display: 'block', marginBottom: '6px' }}>Image:</span>
@@ -2688,8 +3297,101 @@ export default function AdminDashboard() {
                 <span style={{ color: '#888', fontSize: '12px', display: 'none' }}>Image unavailable</span>
               </div>
             )}
+            {/* Finder Proof Photo (if available on claims) */}
+            {(() => {
+              const activeClaim = getActiveClaim(viewDetailsItem);
+              const resolvedClaim = getResolvedClaim(viewDetailsItem);
+              const proofImg = activeClaim?.image || resolvedClaim?.image;
+              if (!proofImg) return null;
+              return (
+                <div style={{ marginTop: '12px' }}>
+                  <span className="detail-label" style={{ display: 'block', marginBottom: '6px' }}>Finder Proof Photo:</span>
+                  <img
+                    src={getImageUrl(proofImg)}
+                    alt="Finder Proof"
+                    style={{ maxWidth: '100%', maxHeight: '220px', borderRadius: '6px', objectFit: 'contain' }}
+                    onError={(e) => {
+                      e.currentTarget.style.display = 'none';
+                      if (e.currentTarget.nextElementSibling) {
+                        e.currentTarget.nextElementSibling.style.display = 'block';
+                      }
+                    }}
+                  />
+                  <span style={{ color: '#888', fontSize: '12px', display: 'none' }}>Proof photo unavailable</span>
+                </div>
+              );
+            })()}
+
+            {/* Visual Workflow Timeline (Section 8: Cases A, B, C, D) */}
+            {(() => {
+              const timeline = getItemTimeline(viewDetailsItem);
+              if (!timeline || timeline.length === 0) return null;
+              return (
+                <div className="admin-timeline-wrap">
+                  <div className="timeline-title-header">
+                    <FiClock /> Workflow Timeline
+                  </div>
+                  <div className="timeline-stepper">
+                    {timeline.map((step, idx) => (
+                      <div key={idx} className="timeline-step-item">
+                        <div className={`timeline-step-dot ${step.status || 'completed'}`} />
+                        <div className="timeline-step-content">
+                          <div className="timeline-step-name">
+                            {step.title}
+                            {step.status === 'rejected' && (
+                              <span style={{ fontSize: '10px', background: '#fee2e2', color: '#b91c1c', padding: '1px 6px', borderRadius: '4px' }}>
+                                Rejected
+                              </span>
+                            )}
+                          </div>
+                          {step.desc && <div className="timeline-step-desc">{step.desc}</div>}
+                          {step.date && (
+                            <div className="timeline-step-time">
+                              {new Date(step.date).toLocaleString()}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
+
             <div style={{ marginTop: '20px', textAlign: 'right' }}>
               <button className="btn-form-cancel" onClick={() => setViewDetailsItem(null)}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Quick Image Preview Modal */}
+      {previewImageModal && (
+        <div className="admin-modal-overlay" onClick={() => setPreviewImageModal(null)}>
+          <div
+            className="admin-modal"
+            style={{ maxWidth: '520px', textAlign: 'center', padding: '24px' }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+              <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 600 }}>{previewImageModal.title || 'Item Image'}</h3>
+              <button
+                className="admin-modal-close"
+                onClick={() => setPreviewImageModal(null)}
+                style={{ background: 'transparent', border: 'none', fontSize: '20px', cursor: 'pointer', lineHeight: 1 }}
+              >
+                &times;
+              </button>
+            </div>
+            <div style={{ background: '#f8fafc', padding: '12px', borderRadius: '8px', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+              <img
+                src={previewImageModal.url}
+                alt={previewImageModal.title || 'Preview'}
+                style={{ maxWidth: '100%', maxHeight: '420px', objectFit: 'contain', borderRadius: '6px' }}
+              />
+            </div>
+            <div style={{ marginTop: '16px', textAlign: 'right' }}>
+              <button className="btn-form-cancel" onClick={() => setPreviewImageModal(null)}>Close</button>
             </div>
           </div>
         </div>

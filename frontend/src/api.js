@@ -69,7 +69,9 @@ export const updateItem = (id, data) => API.put(`/items/${id}`, data, {
   headers: { 'Content-Type': 'multipart/form-data' },
 });
 export const deleteItem = (id) => API.delete(`/items/${id}`);
-export const recoverItem = (id) => API.put(`/items/${id}/recover`);
+export const recoverItem = (id, data) => API.put(`/items/${id}/recover`, data);
+export const sendRecoveryOtp = (id) => API.post(`/items/${id}/recovery-otp`);
+export const rejectFinderClaim = (id) => API.put(`/items/${id}/reject-finder`);
 export const getMyReports = () => API.get('/items/user/my-reports');
 export const sendReportOtp = (data) => API.post('/items/send-report-otp', data);
 export const verifyReportOtp = (data) => API.post('/items/verify-report-otp', data);

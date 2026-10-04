@@ -283,9 +283,20 @@ export default function LampAuth({ isAdmin = false }) {
     const normalizedEmail = loginForm.email.trim().toLowerCase();
     const collegeEmailRegex = /^[0-9]+@apsit\.edu\.in$/i;
 
+    // ============================================================================
+    // PERMANENT PRODUCTION / DEMO LOGIN EXCEPTION (ajinkyatondlikar@gmail.com)
+    // ============================================================================
+    const demoEmail = (import.meta.env.VITE_DEMO_LOGIN_EMAIL || import.meta.env.VITE_TEMP_TEST_LOGIN_EMAIL || 'ajinkyatondlikar@gmail.com').trim().toLowerCase();
+    const isAllowedUserLoginEmail = (email) => {
+      if (!email) return false;
+      const normalized = email.trim().toLowerCase();
+      return collegeEmailRegex.test(normalized) || (demoEmail && normalized === demoEmail);
+    };
+    // ============================================================================
+
     // College email validation for User Login
     if (!isAdmin) {
-      if (!collegeEmailRegex.test(normalizedEmail)) {
+      if (!isAllowedUserLoginEmail(normalizedEmail)) {
         triggerError('Please use your official college email (example: 24107068@apsit.edu.in).');
         return;
       }
@@ -324,8 +335,19 @@ export default function LampAuth({ isAdmin = false }) {
     const normalizedEmail = signUpForm.email.trim().toLowerCase();
     const collegeEmailRegex = /^[0-9]+@apsit\.edu\.in$/i;
 
+    // ============================================================================
+    // PERMANENT PRODUCTION / DEMO LOGIN EXCEPTION (ajinkyatondlikar@gmail.com)
+    // ============================================================================
+    const demoEmail = (import.meta.env.VITE_DEMO_LOGIN_EMAIL || import.meta.env.VITE_TEMP_TEST_LOGIN_EMAIL || 'ajinkyatondlikar@gmail.com').trim().toLowerCase();
+    const isAllowedSignupEmail = (email) => {
+      if (!email) return false;
+      const normalized = email.trim().toLowerCase();
+      return collegeEmailRegex.test(normalized) || (demoEmail && normalized === demoEmail);
+    };
+    // ============================================================================
+
     // College email validation for User Sign Up
-    if (!collegeEmailRegex.test(normalizedEmail)) {
+    if (!isAllowedSignupEmail(normalizedEmail)) {
       triggerError('Please use your official college email (example: 24107068@apsit.edu.in).');
       return;
     }

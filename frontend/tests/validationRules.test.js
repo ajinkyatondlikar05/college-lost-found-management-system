@@ -58,6 +58,7 @@ describe('Frontend Validation Rules & Utility Logic', () => {
       assert.strictEqual(studentEmailRegex.test('student@gmail.com'), false);
       assert.strictEqual(studentEmailRegex.test('admin@apsit.edu.in'), false);
       assert.strictEqual(studentEmailRegex.test('john.doe@gmail.com'), false);
+      assert.strictEqual(studentEmailRegex.test('personal.account@gmail.com'), false);
       assert.strictEqual(studentEmailRegex.test(''), false);
     });
   });

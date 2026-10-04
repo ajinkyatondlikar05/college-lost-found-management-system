@@ -56,6 +56,24 @@ const itemSchema = new mongoose.Schema(
       ref: 'User',
       default: null,
     },
+    recoveryType: {
+      type: String,
+      default: null,
+    },
+    recoveredBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: null,
+    },
+    ownerConfirmedAt: {
+      type: Date,
+      default: null,
+    },
+    ownerConfirmedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: null,
+    },
     resolvedAt: {
       type: Date,
       default: null,

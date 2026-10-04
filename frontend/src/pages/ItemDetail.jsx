@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { getItemById, deleteItem, updateItem, recoverItem, createClaim, sendReportOtp, verifyReportOtp, getImageUrl } from '../api';
+import { getItemById, deleteItem, updateItem, recoverItem, rejectFinderClaim, createClaim, sendReportOtp, verifyReportOtp, getImageUrl } from '../api';
 import { useAuth } from '../context/AuthContext';
 import toast from 'react-hot-toast';
 import { FiMapPin, FiCalendar, FiUser, FiPhone, FiEdit2, FiTrash2, FiArrowLeft, FiCheckCircle, FiUploadCloud, FiX } from 'react-icons/fi';
+import OwnerRecoveryOtpModal from '../components/OwnerRecoveryOtpModal';
 import './ItemDetail.css';
 import './Dashboard.css';
 
@@ -11,6 +12,7 @@ const categoryIcons = {
   Electronics: '💻', 'Books & Notes': '📚', Clothing: '👕', Accessories: '⌚',
   'ID & Cards': '🪪', Keys: '🔑', Bags: '🎒', 'Sports Equipment': '⚽', Stationery: '✏️', Other: '📦',
 };
+
 
 export default function ItemDetail() {
   const { id } = useParams();
@@ -22,6 +24,8 @@ export default function ItemDetail() {
   const [deleting, setDeleting] = useState(false);
   const [statusLoading, setStatusLoading] = useState(false);
   const [imageError, setImageError] = useState(false);
+  const [isRejectModalOpen, setIsRejectModalOpen] = useState(false);
+  const [isRejecting, setIsRejecting] = useState(false);
   const [isClaimModalOpen, setIsClaimModalOpen] = useState(false);
   const [claimStep, setClaimStep] = useState('form'); // 'form' | 'otp' | 'success'
   const [isSubmittingClaim, setIsSubmittingClaim] = useState(false);
@@ -71,17 +75,23 @@ export default function ItemDetail() {
     }
   }, [user]);
 
-  const handleRecoverItem = async () => {
-    if (!window.confirm('Confirm that you have recovered your lost item? This will mark it as resolved.')) return;
-    setStatusLoading(true);
+  const [isRecoveryOtpModalOpen, setIsRecoveryOtpModalOpen] = useState(false);
+
+  const handleRecoverItem = () => {
+    setIsRecoveryOtpModalOpen(true);
+  };
+
+  const handleRejectFinderClaim = async () => {
     try {
-      const { data } = await recoverItem(id);
-      setItem(data.item);
-      toast.success('Great! Your item has been marked as recovered and resolved.');
+      setIsRejecting(true);
+      const { data } = await rejectFinderClaim(id);
+      setItem(data.item || data);
+      setIsRejectModalOpen(false);
+      toast.success('Finder report has been rejected. The item is now open for new finder reports.');
     } catch (err) {
-      toast.error(err.response?.data?.message || 'Failed to update item status');
+      toast.error(err.response?.data?.message || 'Failed to reject finder report');
     } finally {
-      setStatusLoading(false);
+      setIsRejecting(false);
     }
   };
 
@@ -133,10 +143,21 @@ export default function ItemDetail() {
       errs.fullName = 'Full Name must be at least 2 characters long';
     }
 
+    // ============================================================================
+    // PERMANENT PRODUCTION / DEMO FINDER EXCEPTION (ajinkyatondlikar@gmail.com)
+    // ============================================================================
+    const DEMO_FINDER_EMAIL = (import.meta.env.VITE_DEMO_LOGIN_EMAIL || import.meta.env.VITE_TEMP_TEST_LOGIN_EMAIL || 'ajinkyatondlikar@gmail.com').trim().toLowerCase();
+    const isAllowedFinderEmail = (e) => {
+      if (!e) return false;
+      const normalized = e.trim().toLowerCase();
+      return normalized.endsWith('@apsit.edu.in') || normalized === DEMO_FINDER_EMAIL;
+    };
+    // ============================================================================
+
     const trimmedEmail = (claimForm.email || '').trim().toLowerCase();
     if (!trimmedEmail) {
       errs.email = 'College Email Address is required';
-    } else if (!trimmedEmail.endsWith('@apsit.edu.in')) {
+    } else if (!isAllowedFinderEmail(trimmedEmail)) {
       errs.email = 'Email must end with @apsit.edu.in';
     }
 
@@ -311,6 +332,7 @@ export default function ItemDetail() {
   const activeClaim = item.claims?.find(
     (c) => ['Contacted', 'pending', 'Pending Owner Confirmation', 'approved'].includes(c.status)
   );
+
   const hasActiveFinder = Boolean(item.foundBy || activeClaim);
   const finderName = activeClaim?.fullName || item.foundBy?.name || activeClaim?.finder?.name || 'A Student';
   const foundDate = activeClaim?.createdAt || item.updatedAt || item.createdAt;
@@ -485,19 +507,69 @@ export default function ItemDetail() {
               </div>
             )}
 
+            {/* Owner Self-Recovery Resolved Banner */}
+            {isResolved && item.recoveryType === 'owner_found' && (
+              <div
+                className="ud-found-by-card"
+                style={{
+                  marginTop: '1.5rem',
+                  padding: '1.25rem',
+                  background: '#f0fdf4',
+                  border: '1.5px solid #86efac',
+                  borderRadius: '12px',
+                  boxShadow: '0 2px 8px rgba(16, 185, 129, 0.08)',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px', flexWrap: 'wrap', gap: '8px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#059669', fontWeight: 800, fontSize: '0.95rem' }}>
+                    <FiCheckCircle style={{ fontSize: '1.3rem' }} /> RECOVERED BY OWNER
+                  </div>
+                  <span
+                    style={{
+                      background: '#dcfce7',
+                      color: '#15803d',
+                      border: '1px solid #bbf7d0',
+                      fontSize: '0.8rem',
+                      fontWeight: 700,
+                      padding: '3px 10px',
+                      borderRadius: '9999px',
+                    }}
+                  >
+                    Owner Found Item
+                  </span>
+                </div>
+                <div style={{ fontSize: '1.1rem', fontWeight: 800, color: '#0f172a', marginBottom: '4px' }}>
+                  {item.recoveredBy?.name || item.reportedBy?.name || 'Owner'}
+                </div>
+                <div style={{ fontSize: '0.88rem', color: '#475569' }}>
+                  Recovered and resolved on {new Date(item.resolvedAt || item.ownerConfirmedAt || item.updatedAt).toLocaleDateString()} with 6-digit OTP verification.
+                </div>
+              </div>
+            )}
+
             {/* Owner Actions */}
             {isOwner && (
               <div className="detail-actions" style={{ marginTop: hasActiveFinder && isLost ? '1rem' : '1.5rem' }}>
                 {isLost && !isResolved && (
-                  <div style={{ marginBottom: '1rem' }}>
+                  <div style={{ marginBottom: '1rem', display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
                     <button
                       className="btn btn-primary"
                       style={{ background: '#10b981', borderColor: '#10b981', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
                       onClick={handleRecoverItem}
-                      disabled={statusLoading}
+                      disabled={statusLoading || isRejecting}
                     >
                       <FiCheckCircle /> I Got My Item Back
                     </button>
+                    {hasActiveFinder && (
+                      <button
+                        className="btn btn-danger"
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                        onClick={() => setIsRejectModalOpen(true)}
+                        disabled={statusLoading || isRejecting}
+                      >
+                        <FiX /> This Is Not My Item
+                      </button>
+                    )}
                   </div>
                 )}
                 <div className="status-actions">
@@ -540,8 +612,27 @@ export default function ItemDetail() {
             )}
 
             {isResolved && (
-              <div style={{ marginTop: '1.5rem', padding: '0.85rem 1rem', background: 'rgba(16, 185, 129, 0.1)', color: '#10b981', borderRadius: '8px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <FiCheckCircle /> This item has been recovered and resolved.
+              <div
+                style={{
+                  marginTop: '1.5rem',
+                  padding: '1rem 1.25rem',
+                  background: '#f0fdf4',
+                  border: '1.5px solid #86efac',
+                  borderRadius: '12px',
+                  boxShadow: '0 2px 8px rgba(16, 185, 129, 0.08)',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#059669', fontWeight: 800, fontSize: '1rem', letterSpacing: '0.5px', marginBottom: '6px' }}>
+                  <FiCheckCircle style={{ fontSize: '1.25rem' }} /> RESOLVED
+                </div>
+                <div style={{ fontSize: '0.92rem', color: '#166534', fontWeight: 600 }}>
+                  This item has been recovered and resolved.
+                </div>
+                {(item.foundBy || item.claimedBy) && (
+                  <div style={{ marginTop: '8px', fontSize: '0.95rem', color: '#0f172a', fontWeight: 700 }}>
+                    Found By: <span style={{ color: '#059669' }}>{item.foundBy?.name || item.claimedBy?.name || 'Final Finder'}</span>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -813,6 +904,77 @@ export default function ItemDetail() {
           </div>
         </div>
       )}
+
+      {/* Confirmation Dialog: "This Is Not My Item" (Requirement 2) */}
+      {isRejectModalOpen && (
+        <div className="ud-modal-backdrop" onClick={() => !isRejecting && setIsRejectModalOpen(false)}>
+          <div
+            className="ud-modal-card animate-scaleUp"
+            style={{ maxWidth: '440px', textAlign: 'center', padding: '24px 20px' }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div
+              style={{
+                width: '56px',
+                height: '56px',
+                borderRadius: '50%',
+                background: '#fef2f2',
+                color: '#ef4444',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                margin: '0 auto 16px',
+                fontSize: '28px',
+              }}
+            >
+              <FiX />
+            </div>
+
+            <h3 style={{ fontSize: '1.25rem', fontWeight: 700, color: '#0f172a', marginBottom: '8px' }}>
+              Are you sure this is not your item?
+            </h3>
+            <p style={{ fontSize: '0.9rem', color: '#64748b', marginBottom: '24px', lineHeight: 1.5 }}>
+              Rejecting this report will clear the current finder and make your lost item available for new reports by other students.
+            </p>
+
+            <div style={{ display: 'flex', gap: '12px', justifyContent: 'center', flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                className="ud-btn-cancel"
+                style={{ minWidth: '110px' }}
+                onClick={() => setIsRejectModalOpen(false)}
+                disabled={isRejecting}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn btn-danger"
+                style={{ minWidth: '180px', padding: '10px 18px', borderRadius: '8px', fontWeight: 600 }}
+                onClick={handleRejectFinderClaim}
+                disabled={isRejecting}
+              >
+                {isRejecting ? 'Rejecting...' : 'Yes, This Is Not My Item'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Owner Recovery OTP Verification Modal */}
+      <OwnerRecoveryOtpModal
+        isOpen={isRecoveryOtpModalOpen}
+        onClose={() => setIsRecoveryOtpModalOpen(false)}
+        itemId={id}
+        itemTitle={item?.title}
+        onSuccess={(data) => {
+          if (data?.item) {
+            setItem(data.item);
+          } else {
+            getItemById(id).then((res) => setItem(res.data)).catch(() => {});
+          }
+        }}
+      />
     </div>
   );
 }

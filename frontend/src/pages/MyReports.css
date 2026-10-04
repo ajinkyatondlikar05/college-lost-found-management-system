@@ -1169,14 +1169,21 @@
    PRINT STYLESHEET (@media print)
    ======================================================== */
 @media print {
-  /* Hide standard web UI */
+  @page {
+    size: auto;
+    margin: 12mm 15mm;
+  }
+
   body {
     background: #ffffff !important;
     color: #000000 !important;
     margin: 0 !important;
     padding: 0 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
   }
 
+  /* Hide interactive web UI */
   .navbar,
   .history-page-header,
   .summary-grid,
@@ -1186,151 +1193,319 @@
   .empty-history-box,
   .empty-filter-box,
   .loading-state-box,
+  .history-container,
   footer {
     display: none !important;
   }
 
-  /* Show only printable containers */
+  /* Show only active printable container */
   .printable-single-report,
   .printable-history-report {
     display: block !important;
     background: #ffffff !important;
     color: #000000 !important;
-    padding: 2.5cm 2cm !important;
-    font-family: Arial, Helvetica, sans-serif !important;
+    padding: 0 !important;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif !important;
     line-height: 1.4 !important;
   }
 
-  .print-header {
-    text-align: center;
-    margin-bottom: 1.5rem;
+  /* ========================================================
+     SIMPLIFIED SINGLE ITEM PRINT LAYOUT (Item Details Style)
+     ======================================================== */
+  .simple-report-container {
+    background: #ffffff !important;
+    color: #0f172a !important;
+    padding: 0.5cm 1cm !important;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif !important;
+    line-height: 1.5 !important;
   }
 
-  .print-main-title {
-    font-size: 1.35rem;
+  .simple-report-header {
+    margin-bottom: 0.8rem;
+  }
+
+  .simple-report-main-title {
+    font-size: 1.3rem;
     font-weight: 800;
-    margin: 0 0 0.35rem 0;
-    color: #000000;
-    letter-spacing: 0.05em;
-  }
-
-  .print-doc-title {
-    font-size: 1.1rem;
-    font-weight: 700;
+    color: #0f172a;
     margin: 0 0 0.25rem 0;
+    letter-spacing: 0.02em;
   }
 
-  .print-sub-title {
-    font-size: 0.85rem;
-    color: #4b5563;
+  .simple-report-sub-title {
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: #64748b;
     margin: 0;
   }
 
-  .print-divider {
-    border-top: 1.5px solid #000000;
-    margin: 1.25rem 0;
+  .simple-report-divider {
+    border-top: 1px solid #e2e8f0;
+    margin: 1rem 0;
   }
 
-  .print-section {
+  .simple-report-section {
+    margin-bottom: 0.8rem;
+  }
+
+  .simple-report-section-title {
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: #0f172a;
+    margin: 0 0 0.65rem 0;
+  }
+
+  .simple-report-data-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+  }
+
+  .simple-report-row {
+    display: flex;
+    font-size: 0.88rem;
+    line-height: 1.45;
+  }
+
+  .simple-report-label {
+    width: 170px;
+    flex-shrink: 0;
+    color: #64748b;
+    font-weight: 600;
+  }
+
+  .simple-report-value {
+    color: #0f172a;
+    flex: 1;
+    word-break: break-word;
+  }
+
+  .simple-report-badge {
+    display: inline-block;
+    font-size: 0.75rem;
+    font-weight: 700;
+    padding: 0.15rem 0.5rem;
+    border-radius: 9999px;
+    text-transform: uppercase;
+  }
+
+  .simple-report-badge.badge-lost {
+    background: #fef2f2;
+    color: #dc2626;
+    border: 1px solid #fecaca;
+  }
+
+  .simple-report-badge.badge-found {
+    background: #ecfdf5;
+    color: #059669;
+    border: 1px solid #a7f3d0;
+  }
+
+  /* Clear Status Badges matching ItemDetail styles */
+  .simple-report-status-badge {
+    display: inline-block;
+    font-size: 0.8rem;
+    font-weight: 800;
+    padding: 0.2rem 0.65rem;
+    border-radius: 6px;
+    letter-spacing: 0.03em;
+  }
+
+  .simple-report-status-badge.status-lost {
+    background: #fef2f2;
+    color: #dc2626;
+    border: 1px solid #fecaca;
+  }
+
+  .simple-report-status-badge.status-found-by {
+    background: #dcfce7;
+    color: #15803d;
+    border: 1px solid #bbf7d0;
+  }
+
+  .simple-report-status-badge.status-pending {
+    background: #eff6ff;
+    color: #2563eb;
+    border: 1px solid #bfdbfe;
+  }
+
+  .simple-report-status-badge.status-resolved {
+    background: #f0fdf4;
+    color: #059669;
+    border: 1px solid #86efac;
+  }
+
+  .simple-report-status-badge.status-rejected {
+    background: #fef2f2;
+    color: #b91c1c;
+    border: 1px solid #fca5a5;
+  }
+
+  .simple-report-status-badge.status-active {
+    background: #eff6ff;
+    color: #2563eb;
+    border: 1px solid #bfdbfe;
+  }
+
+  /* Finder History cards */
+  .simple-finder-history-container {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .simple-finder-history-card {
+    padding: 0.4rem 0;
+    border-bottom: 1px dashed #e2e8f0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+
+  .simple-finder-history-card:last-child {
+    border-bottom: none;
+  }
+
+  .simple-history-tag {
+    display: inline-block;
+    font-size: 0.75rem;
+    font-weight: 700;
+    padding: 0.1rem 0.45rem;
+    border-radius: 4px;
+  }
+
+  .simple-history-tag.tag-rejected {
+    background: #fee2e2;
+    color: #b91c1c;
+  }
+
+  .simple-history-tag.tag-resolved {
+    background: #dcfce7;
+    color: #15803d;
+  }
+
+  .simple-report-footer {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.75rem;
+    color: #94a3b8;
+    margin-top: 0.5rem;
+  }
+
+  /* ========================================================
+     SIMPLIFIED COMPLETE HISTORY PRINT LAYOUT (Collection of Cards)
+     ======================================================== */
+  .simple-history-container {
+    background: #ffffff !important;
+    color: #0f172a !important;
+    padding: 0.5cm 1cm !important;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif !important;
+    line-height: 1.5 !important;
+  }
+
+  .simple-history-header {
+    margin-bottom: 0.8rem;
+  }
+
+  .simple-history-main-title {
+    font-size: 1.3rem;
+    font-weight: 800;
+    color: #0f172a;
+    margin: 0 0 0.25rem 0;
+    letter-spacing: 0.02em;
+  }
+
+  .simple-history-sub-title {
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: #64748b;
+    margin: 0 0 0.5rem 0;
+  }
+
+  .simple-history-meta {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.85rem;
+    color: #475569;
+    margin-top: 0.4rem;
+  }
+
+  .simple-history-divider {
+    border-top: 1px solid #e2e8f0;
+    margin: 0.75rem 0 1rem 0;
+  }
+
+  .simple-history-divider-thick {
+    border-top: 2px solid #0f172a;
+    margin: 1.5rem 0;
+  }
+
+  .simple-history-summary {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 1.5rem;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    padding: 0.75rem 1rem;
     margin-bottom: 1.25rem;
   }
 
-  .print-section-title {
-    font-size: 0.95rem;
-    font-weight: 800;
-    margin: 0 0 0.75rem 0;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    border-bottom: 1px solid #d1d5db;
-    padding-bottom: 0.35rem;
+  .summary-stat-item {
+    font-size: 0.85rem;
+    color: #334155;
   }
 
-  .print-table {
+  .simple-history-cards-list {
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+  }
+
+  .simple-history-report-card {
+    background: #ffffff;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    padding: 1rem 1.25rem;
+    margin-bottom: 1.25rem;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
+  .simple-report-card-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding-bottom: 0.25rem;
+  }
+
+  .simple-report-number {
+    font-size: 1.05rem;
+    font-weight: 800;
+    color: #0f172a;
+    letter-spacing: 0.04em;
+  }
+
+  .simple-report-id {
+    font-size: 0.8rem;
+    font-family: monospace;
+    color: #64748b;
+  }
+
+  .simple-rejected-history-list {
     display: flex;
     flex-direction: column;
     gap: 0.5rem;
   }
 
-  .print-row {
-    display: flex;
-    font-size: 0.88rem;
-    gap: 1rem;
-  }
-
-  .print-label {
-    width: 160px;
-    font-weight: 700;
-    color: #374151;
-    flex-shrink: 0;
-  }
-
-  .print-value {
-    color: #000000;
-    flex: 1;
-  }
-
-  .print-type-badge, .print-status-badge {
-    font-weight: 800;
-  }
-
-  .print-summary-box {
-    margin-bottom: 1.5rem;
-  }
-
-  .print-student-info {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 0.5rem;
-    font-size: 0.88rem;
-    margin-bottom: 1rem;
-    background: #f9fafb;
-    padding: 0.75rem;
-    border: 1px solid #e5e7eb;
-  }
-
-  .print-counts-row {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 0.5rem;
-  }
-
-  .count-box {
-    background: #ffffff;
-    border: 1px solid #e5e7eb;
+  .simple-rejected-item {
+    background: #fff5f5;
+    border: 1px solid #fecaca;
+    border-radius: 6px;
     padding: 0.5rem 0.75rem;
-    font-size: 0.85rem;
-  }
-
-  .print-history-table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 0.8rem;
-    margin-top: 0.5rem;
-  }
-
-  .print-history-table th,
-  .print-history-table td {
-    border: 1px solid #d1d5db;
-    padding: 0.45rem 0.6rem;
-    text-align: left;
-  }
-
-  .print-history-table th {
-    background: #f3f4f6;
-    font-weight: 800;
-  }
-
-  .print-history-table .mono {
-    font-family: monospace;
-  }
-
-  .print-footer {
-    text-align: center;
-    font-size: 0.75rem;
-    color: #6b7280;
-    margin-top: 2rem;
-    border-top: 1px solid #e5e7eb;
-    padding-top: 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
   }
 }
 

@@ -9,6 +9,7 @@ describe('Authentication Routes Validation & Security', () => {
   let originalFindOne;
 
   before(async () => {
+    process.env.JWT_SECRET = process.env.JWT_SECRET || 'test_jwt_secret_token_12345';
     // Stub User.findOne for offline test execution without database connection
     originalFindOne = User.findOne;
     User.findOne = async () => null;
@@ -113,6 +114,121 @@ describe('Authentication Routes Validation & Security', () => {
 
       // Admin portal login rejects unauthorized non-admin emails
       assert.ok(res.status === 401 || res.status === 403);
+    });
+
+    it('should allow normal @apsit.edu.in login with valid password and approved student account', async () => {
+      const prevFindOne = User.findOne;
+      User.findOne = async (query) => {
+        if (query.email === '24107068@apsit.edu.in') {
+          return {
+            _id: '64a1f1000000000000000010',
+            name: 'College Student',
+            email: '24107068@apsit.edu.in',
+            studentId: '24107068',
+            phone: '9876543210',
+            department: 'Computer Engineering',
+            role: 'user',
+            status: 'approved',
+            approved: true,
+            comparePassword: async (pwd) => pwd === 'CollegeSecret123',
+          };
+        }
+        return null;
+      };
+
+      try {
+        const res = await fetch(`${baseUrl}/api/auth/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: '24107068@apsit.edu.in',
+            password: 'CollegeSecret123',
+            isAdmin: false,
+          }),
+        });
+
+        assert.strictEqual(res.status, 200);
+        const data = await res.json();
+        assert.strictEqual(data.email, '24107068@apsit.edu.in');
+        assert.strictEqual(data.role, 'user');
+        assert.ok(data.token);
+      } finally {
+        User.findOne = prevFindOne;
+      }
+    });
+
+    it('should allow permanent production/demo login for ajinkyatondlikar@gmail.com with environment variable password', async () => {
+      const prevEnvPass = process.env.DEMO_LOGIN_PASSWORD;
+      process.env.DEMO_LOGIN_PASSWORD = 'TestEnvDemoPassword123';
+      const prevFindOne = User.findOne;
+      User.findOne = async (query) => {
+        if (query.email === 'ajinkyatondlikar@gmail.com') {
+          return {
+            _id: '64a1f1000000000000000099',
+            name: 'Ajinkya Tondlikar',
+            email: 'ajinkyatondlikar@gmail.com',
+            studentId: '99999999',
+            phone: '',
+            department: 'Computer Engineering',
+            role: 'user',
+            status: 'approved',
+            approved: true,
+          };
+        }
+        return null;
+      };
+
+      try {
+        const res = await fetch(`${baseUrl}/api/auth/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: 'ajinkyatondlikar@gmail.com',
+            password: 'TestEnvDemoPassword123',
+            isAdmin: false,
+          }),
+        });
+
+        assert.strictEqual(res.status, 200);
+        const data = await res.json();
+        assert.strictEqual(data.email, 'ajinkyatondlikar@gmail.com');
+        assert.strictEqual(data.role, 'user');
+        assert.strictEqual(data.approved, true);
+        assert.ok(data.token);
+      } finally {
+        User.findOne = prevFindOne;
+        if (prevEnvPass !== undefined) {
+          process.env.DEMO_LOGIN_PASSWORD = prevEnvPass;
+        } else {
+          delete process.env.DEMO_LOGIN_PASSWORD;
+        }
+      }
+    });
+
+    it('should reject permanent production/demo login for ajinkyatondlikar@gmail.com when password does not match', async () => {
+      const prevEnvPass = process.env.DEMO_LOGIN_PASSWORD;
+      process.env.DEMO_LOGIN_PASSWORD = 'TestEnvDemoPassword123';
+      try {
+        const res = await fetch(`${baseUrl}/api/auth/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: 'ajinkyatondlikar@gmail.com',
+            password: 'WrongPassword999',
+            isAdmin: false,
+          }),
+        });
+
+        assert.strictEqual(res.status, 401);
+        const data = await res.json();
+        assert.strictEqual(data.message, 'Invalid email or password');
+      } finally {
+        if (prevEnvPass !== undefined) {
+          process.env.DEMO_LOGIN_PASSWORD = prevEnvPass;
+        } else {
+          delete process.env.DEMO_LOGIN_PASSWORD;
+        }
+      }
     });
   });
 

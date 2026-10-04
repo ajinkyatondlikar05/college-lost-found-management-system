@@ -199,3 +199,60 @@ describe('Item Model & Existing Image URL Preservation', () => {
     assert.strictEqual(item.image, legacyPath);
   });
 });
+
+describe('Claim Model & Finder Proof Image Cloudinary Storage', () => {
+  const Claim = require('../models/Claim');
+
+  it('should accept and store permanent Cloudinary URLs in Claim.image for finder proof photo', () => {
+    const proofUrl = 'https://res.cloudinary.com/apsit/image/upload/v12345/college-lost-found/claims/proof_photo.jpg';
+    const claim = new Claim({
+      itemName: 'Casio Calculator',
+      fullName: 'Priya Patel',
+      email: '24107002@apsit.edu.in',
+      phone: '9123456780',
+      image: proofUrl,
+      finderMessage: 'Found in Room 402',
+    });
+
+    const error = claim.validateSync();
+    assert.strictEqual(error, undefined);
+    assert.strictEqual(claim.image, proofUrl);
+  });
+
+  it('uploadImage should upload finder proof photo to Cloudinary in college-lost-found/claims folder', async () => {
+    process.env.CLOUDINARY_CLOUD_NAME = 'mock-cloud';
+    process.env.CLOUDINARY_API_KEY = 'mock-key';
+    process.env.CLOUDINARY_API_SECRET = 'mock-secret';
+
+    const tempFile = path.join(os.tmpdir(), `test-finder-proof-${Date.now()}.png`);
+    fs.writeFileSync(tempFile, 'dummy-proof-photo-bytes');
+
+    let capturedFolder = '';
+    const mockSecureUrl = 'https://res.cloudinary.com/mock-cloud/image/upload/v12345/college-lost-found/claims/proof_mock.png';
+
+    const originalUpload = cloudinary.uploader.upload;
+    cloudinary.uploader.upload = async (filePath, options) => {
+      assert.strictEqual(filePath, tempFile);
+      capturedFolder = options.folder;
+      assert.strictEqual(options.resource_type, 'image');
+      return {
+        secure_url: mockSecureUrl,
+        public_id: 'college-lost-found/claims/proof_mock',
+      };
+    };
+
+    try {
+      const mockFile = {
+        path: tempFile,
+        filename: path.basename(tempFile),
+      };
+
+      const resultUrl = await uploadImage(mockFile, 'college-lost-found/claims');
+      assert.strictEqual(resultUrl, mockSecureUrl);
+      assert.strictEqual(capturedFolder, 'college-lost-found/claims');
+    } finally {
+      cloudinary.uploader.upload = originalUpload;
+      if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
+    }
+  });
+});

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { getMyReports, deleteItem, getImageUrl, recoverItem } from '../api';
+import { getMyReports, deleteItem, getImageUrl, recoverItem, rejectFinderClaim } from '../api';
 import { useAuth } from '../context/AuthContext';
 import toast from 'react-hot-toast';
 import {
@@ -24,9 +24,10 @@ import {
   FiShield,
   FiArrowRight,
   FiInbox,
-  FiPlusCircle
+  FiPlusCircle,
 } from 'react-icons/fi';
 import './MyReports.css';
+import OwnerRecoveryOtpModal from '../components/OwnerRecoveryOtpModal';
 
 const categoryIcons = {
   Electronics: '💻',
@@ -55,6 +56,9 @@ export default function MyReports() {
 
   // Modals & Print
   const [selectedItem, setSelectedItem] = useState(null);
+  const [isRejectModalOpen, setIsRejectModalOpen] = useState(false);
+  const [rejectTargetItemId, setRejectTargetItemId] = useState(null);
+  const [isRejecting, setIsRejecting] = useState(false);
   const [deleteConfirmItem, setDeleteConfirmItem] = useState(null);
   const [printMode, setPrintMode] = useState(null); // 'single' | 'history' | null
   const [itemToPrint, setItemToPrint] = useState(null);
@@ -159,21 +163,39 @@ export default function MyReports() {
     }
   };
 
-  const handleRecover = async (itemId) => {
+  const [recoveryTargetItem, setRecoveryTargetItem] = useState(null);
+  const [isRecoveryModalOpen, setIsRecoveryModalOpen] = useState(false);
+
+  const handleRecover = (itemOrId) => {
+    const target = typeof itemOrId === 'object' && itemOrId !== null
+      ? itemOrId
+      : items.find((i) => i._id === itemOrId) || { _id: itemOrId };
+    setRecoveryTargetItem(target);
+    setIsRecoveryModalOpen(true);
+  };
+
+  const handleRejectFinder = async () => {
+    if (!rejectTargetItemId) return;
     try {
-      await recoverItem(itemId);
-      toast.success('Item successfully marked as recovered!');
-      fetchReports();
-      if (selectedItem && selectedItem._id === itemId) {
+      setIsRejecting(true);
+      await rejectFinderClaim(rejectTargetItemId);
+      toast.success('Finder report has been rejected. The item is now open for new finder reports.');
+      setIsRejectModalOpen(false);
+      setRejectTargetItemId(null);
+      if (selectedItem && selectedItem._id === rejectTargetItemId) {
         setSelectedItem(null);
       }
+      fetchReports();
     } catch (err) {
-      toast.error(err.response?.data?.message || 'Failed to mark item as recovered');
+      toast.error(err.response?.data?.message || 'Failed to reject finder report');
+    } finally {
+      setIsRejecting(false);
     }
   };
 
   // Print handlers
   const handlePrintSingle = (item) => {
+    if (!item) return;
     setItemToPrint(item);
     setPrintMode('single');
     setTimeout(() => {
@@ -181,12 +203,42 @@ export default function MyReports() {
     }, 150);
   };
 
-  const handlePrintHistory = () => {
+  const handlePrintHistory = async () => {
+    setItemToPrint(null);
     setPrintMode('history');
+    try {
+      const res = await getMyReports();
+      if (Array.isArray(res.data) && res.data.length > 0) {
+        setItems(res.data);
+      }
+    } catch (err) {
+      console.warn('Could not refresh reports before printing history:', err);
+    }
     setTimeout(() => {
       window.print();
     }, 150);
   };
+
+  useEffect(() => {
+    const handleBeforePrint = () => {
+      setPrintMode((prev) => {
+        if (prev) return prev;
+        return selectedItem ? 'single' : 'history';
+      });
+      if (!itemToPrint && selectedItem) {
+        setItemToPrint(selectedItem);
+      }
+    };
+    const handleAfterPrint = () => {
+      setPrintMode(null);
+    };
+    window.addEventListener('beforeprint', handleBeforePrint);
+    window.addEventListener('afterprint', handleAfterPrint);
+    return () => {
+      window.removeEventListener('beforeprint', handleBeforePrint);
+      window.removeEventListener('afterprint', handleAfterPrint);
+    };
+  }, [selectedItem, itemToPrint]);
 
   // Helper date formatter
   const formatDate = (d) => {
@@ -217,6 +269,36 @@ export default function MyReports() {
     } catch {
       return 'N/A';
     }
+  };
+
+  const getSimpleStatusBadge = (item) => {
+    if (!item) return { text: 'ACTIVE', cls: 'status-active' };
+    const s = (item.status || '').toLowerCase();
+    const cs = (item.claimStatus || (item.claims && item.claims[0]?.status) || '').toLowerCase();
+    const hasAdminRejected = (item.claims && item.claims.some((c) => c.status === 'Admin Rejected')) || cs === 'admin rejected';
+
+    if (s === 'resolved' || s === 'claimed') {
+      return { text: 'RESOLVED', cls: 'status-resolved' };
+    }
+    if (hasAdminRejected) {
+      return { text: 'ADMIN REJECTED', cls: 'status-rejected' };
+    }
+    if (item.foundBy || ['contacted', 'pending owner confirmation'].includes(cs)) {
+      return { text: 'FOUND BY', cls: 'status-found-by' };
+    }
+    if (cs === 'rejected') {
+      return { text: 'REJECTED', cls: 'status-rejected' };
+    }
+    if (s === 'active' && !item.type) {
+      return { text: 'ACTIVE', cls: 'status-active' };
+    }
+    if ((item.type || '').toLowerCase() === 'lost') {
+      return { text: 'LOST', cls: 'status-lost' };
+    }
+    if ((item.type || '').toLowerCase() === 'found') {
+      return { text: 'FOUND', cls: 'status-found' };
+    }
+    return { text: (item.status || 'ACTIVE').toUpperCase(), cls: 'status-active' };
   };
 
   // Fallback student info from user context or item data
@@ -447,9 +529,9 @@ export default function MyReports() {
 
               // Timeline progression calculation
               let timelineStep = 1;
-              if (rawStatus === 'ACTIVE') timelineStep = 2;
-              if (claimStatus) timelineStep = 3;
-              if (claimStatus === 'approved') timelineStep = 4;
+              if (rawStatus === 'ACTIVE' || !isLost) timelineStep = 2;
+              if (item.foundBy || claimStatus || (item.claims && item.claims.length > 0)) timelineStep = 3;
+              if (item.ownerConfirmedAt || rawStatus === 'CLAIMED' || rawStatus === 'RESOLVED') timelineStep = 4;
               if (rawStatus === 'CLAIMED' || rawStatus === 'RESOLVED') timelineStep = 5;
 
               return (
@@ -546,32 +628,61 @@ export default function MyReports() {
                         <div className="timeline-header-label">Activity Timeline</div>
                         <div className="timeline-stepper">
                           {isLost ? (
-                            <>
-                              <div className={`step-node ${timelineStep >= 1 ? 'completed' : ''}`}>
-                                <div className="step-circle">1</div>
-                                <span className="step-title">Reported Lost</span>
-                              </div>
-                              <div className={`step-line ${timelineStep >= 2 ? 'completed' : ''}`} />
-                              <div className={`step-node ${timelineStep >= 2 ? 'completed' : ''}`}>
-                                <div className="step-circle">2</div>
-                                <span className="step-title">Active</span>
-                              </div>
-                              <div className={`step-line ${timelineStep >= 3 ? 'completed' : ''}`} />
-                              <div className={`step-node ${timelineStep >= 3 ? 'completed' : ''}`}>
-                                <div className="step-circle">3</div>
-                                <span className="step-title">Claim Submitted</span>
-                              </div>
-                              <div className={`step-line ${timelineStep >= 4 ? 'completed' : ''}`} />
-                              <div className={`step-node ${timelineStep >= 4 ? 'completed' : ''}`}>
-                                <div className="step-circle">4</div>
-                                <span className="step-title">Claim Approved</span>
-                              </div>
-                              <div className={`step-line ${timelineStep >= 5 ? 'completed' : ''}`} />
-                              <div className={`step-node ${timelineStep >= 5 ? 'completed' : ''}`}>
-                                <div className="step-circle">5</div>
-                                <span className="step-title">Claimed / Resolved</span>
-                              </div>
-                            </>
+                            item.recoveryType === 'owner_found' ? (
+                              <>
+                                <div className="step-node completed">
+                                  <div className="step-circle">1</div>
+                                  <span className="step-title">Reported Lost</span>
+                                </div>
+                                <div className="step-line completed" />
+                                <div className="step-node completed">
+                                  <div className="step-circle">2</div>
+                                  <span className="step-title">Active</span>
+                                </div>
+                                <div className="step-line completed" />
+                                <div className="step-node completed">
+                                  <div className="step-circle">3</div>
+                                  <span className="step-title">Owner Found Item</span>
+                                </div>
+                                <div className="step-line completed" />
+                                <div className="step-node completed">
+                                  <div className="step-circle">4</div>
+                                  <span className="step-title">OTP Verified</span>
+                                </div>
+                                <div className="step-line completed" />
+                                <div className="step-node completed">
+                                  <div className="step-circle">5</div>
+                                  <span className="step-title">Resolved</span>
+                                </div>
+                              </>
+                            ) : (
+                              <>
+                                <div className={`step-node ${timelineStep >= 1 ? 'completed' : ''}`}>
+                                  <div className="step-circle">1</div>
+                                  <span className="step-title">Reported Lost</span>
+                                </div>
+                                <div className={`step-line ${timelineStep >= 2 ? 'completed' : ''}`} />
+                                <div className={`step-node ${timelineStep >= 2 ? 'completed' : ''}`}>
+                                  <div className="step-circle">2</div>
+                                  <span className="step-title">Active</span>
+                                </div>
+                                <div className={`step-line ${timelineStep >= 3 ? 'completed' : ''}`} />
+                                <div className={`step-node ${timelineStep >= 3 ? 'completed' : ''}`}>
+                                  <div className="step-circle">3</div>
+                                  <span className="step-title">Finder Reported</span>
+                                </div>
+                                <div className={`step-line ${timelineStep >= 4 ? 'completed' : ''}`} />
+                                <div className={`step-node ${timelineStep >= 4 ? 'completed' : ''}`}>
+                                  <div className="step-circle">4</div>
+                                  <span className="step-title">Owner Confirmed Recovery</span>
+                                </div>
+                                <div className={`step-line ${timelineStep >= 5 ? 'completed' : ''}`} />
+                                <div className={`step-node ${timelineStep >= 5 ? 'completed' : ''}`}>
+                                  <div className="step-circle">5</div>
+                                  <span className="step-title">Resolved</span>
+                                </div>
+                              </>
+                            )
                           ) : (
                             <>
                               <div className={`step-node ${timelineStep >= 1 ? 'completed' : ''}`}>
@@ -614,14 +725,29 @@ export default function MyReports() {
 
                     <div className="footer-button-group">
                       {isLost && rawStatus !== 'RESOLVED' && rawStatus !== 'CLAIMED' && (
-                        <button
-                          className="btn-print-report"
-                          style={{ background: '#059669', color: '#fff', borderColor: '#059669' }}
-                          onClick={() => handleRecover(item._id)}
-                          title="I Got My Item Back"
-                        >
-                          <FiCheckCircle /> I Got My Item Back
-                        </button>
+                        <>
+                          <button
+                            className="btn-print-report"
+                            style={{ background: '#059669', color: '#fff', borderColor: '#059669' }}
+                            onClick={() => handleRecover(item._id)}
+                            title="I Got My Item Back"
+                          >
+                            <FiCheckCircle /> I Got My Item Back
+                          </button>
+                          {(item.foundBy || (item.claims && item.claims.some(c => ['Contacted', 'pending', 'Pending Owner Confirmation', 'approved'].includes(c.status)))) && (
+                            <button
+                              className="btn-print-report"
+                              style={{ background: '#dc2626', color: '#fff', borderColor: '#dc2626' }}
+                              onClick={() => {
+                                setRejectTargetItemId(item._id);
+                                setIsRejectModalOpen(true);
+                              }}
+                              title="This Is Not My Item"
+                            >
+                              <FiX /> This Is Not My Item
+                            </button>
+                          )}
+                        </>
                       )}
                       <button
                         className="btn-view-details"
@@ -797,11 +923,40 @@ export default function MyReports() {
                         <div className="detail-row">
                           <span className="row-key">Claim Status:</span>
                           <span className="row-val">
-                            {selectedItem.claimStatus
-                              ? selectedItem.claimStatus.toUpperCase()
-                              : 'No claims recorded'}
+                            {selectedItem.recoveryType === 'owner_found'
+                              ? 'RESOLVED (OWNER FOUND)'
+                              : (selectedItem.claimStatus
+                                ? selectedItem.claimStatus.toUpperCase()
+                                : 'No claims recorded')}
                           </span>
                         </div>
+                        {selectedItem.recoveryType === 'owner_found' && (
+                          <div
+                            style={{
+                              margin: '14px 0',
+                              padding: '12px 14px',
+                              background: '#f0fdf4',
+                              border: '1.5px solid #86efac',
+                              borderRadius: '8px',
+                            }}
+                          >
+                            <div style={{ fontWeight: 700, color: '#15803d', marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <FiCheckCircle /> Recovered By Owner
+                            </div>
+                            <div className="detail-row" style={{ marginTop: '4px' }}>
+                              <span className="row-key">Recovery Type:</span>
+                              <span className="row-val" style={{ fontWeight: 700, color: '#059669' }}>Owner Found Item</span>
+                            </div>
+                            <div className="detail-row" style={{ marginTop: '4px' }}>
+                              <span className="row-key">Verification:</span>
+                              <span className="row-val" style={{ color: '#15803d', fontWeight: 600 }}>OTP Verified</span>
+                            </div>
+                            <div className="detail-row" style={{ marginTop: '4px' }}>
+                              <span className="row-key">Status:</span>
+                              <span className="row-val" style={{ fontWeight: 700, color: '#15803d' }}>Resolved</span>
+                            </div>
+                          </div>
+                        )}
                         {selectedItem.latestClaim && (
                           <>
                             <div className="detail-row">
@@ -915,13 +1070,27 @@ export default function MyReports() {
                 {(selectedItem.type || '').toLowerCase() === 'lost' &&
                   (selectedItem.status || '').toLowerCase() !== 'resolved' &&
                   (selectedItem.status || '').toLowerCase() !== 'claimed' && (
-                    <button
-                      className="btn-print-report"
-                      style={{ background: '#059669', color: '#fff', borderColor: '#059669' }}
-                      onClick={() => handleRecover(selectedItem._id)}
-                    >
-                      <FiCheckCircle /> I Got My Item Back
-                    </button>
+                    <>
+                      <button
+                        className="btn-print-report"
+                        style={{ background: '#059669', color: '#fff', borderColor: '#059669' }}
+                        onClick={() => handleRecover(selectedItem._id)}
+                      >
+                        <FiCheckCircle /> I Got My Item Back
+                      </button>
+                      {(selectedItem.foundBy || (selectedItem.claims && selectedItem.claims.some((c) => ['Contacted', 'pending', 'Pending Owner Confirmation', 'approved'].includes(c.status)))) && (
+                        <button
+                          className="btn-print-report"
+                          style={{ background: '#dc2626', color: '#fff', borderColor: '#dc2626' }}
+                          onClick={() => {
+                            setRejectTargetItemId(selectedItem._id);
+                            setIsRejectModalOpen(true);
+                          }}
+                        >
+                          <FiX /> This Is Not My Item
+                        </button>
+                      )}
+                    </>
                   )}
                 <button
                   className="btn-print-report"
@@ -963,211 +1132,522 @@ export default function MyReports() {
             </div>
           </div>
         )}
+
+        {/* Confirmation Dialog: "This Is Not My Item" (Requirement 2) */}
+        {isRejectModalOpen && (
+          <div className="modal-backdrop" onClick={() => !isRejecting && setIsRejectModalOpen(false)}>
+            <div className="modal-card modal-small" onClick={(e) => e.stopPropagation()} style={{ textAlign: 'center' }}>
+              <div className="confirm-icon-wrap" style={{ background: '#fee2e2', color: '#ef4444' }}>
+                <FiX />
+              </div>
+              <h3 className="confirm-title">Are you sure this is not your item?</h3>
+              <p className="confirm-text">
+                Rejecting this report will clear the current finder and make your lost item available for new reports by other students.
+              </p>
+              <div className="confirm-actions" style={{ display: 'flex', gap: '10px', justifyContent: 'center', marginTop: '16px' }}>
+                <button
+                  className="btn-modal-close"
+                  onClick={() => setIsRejectModalOpen(false)}
+                  disabled={isRejecting}
+                >
+                  Cancel
+                </button>
+                <button
+                  className="btn-confirm-delete"
+                  style={{ background: '#dc2626' }}
+                  onClick={handleRejectFinder}
+                  disabled={isRejecting}
+                >
+                  {isRejecting ? 'Rejecting...' : 'Yes, This Is Not My Item'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* ========================================================
           PRINTABLE VIEWS (Hidden on Screen, Shown in @media print)
       ======================================================== */}
 
-      {/* 1. SINGLE REPORT PRINT VIEW */}
-      {itemToPrint && (
-        <div className="printable-single-report">
-          <div className="print-header">
-            <h1 className="print-main-title">COLLEGE LOST & FOUND MANAGEMENT SYSTEM</h1>
-            <p className="print-sub-title">Official Item Activity & Incident Record</p>
+      {/* 1. SINGLE REPORT PRINT VIEW (Simplified Individual Item Report) */}
+      {printMode === 'single' && itemToPrint && (() => {
+        const statusBadge = getSimpleStatusBadge(itemToPrint);
+        const activeClaim = itemToPrint.claims?.find(
+          (c) => ['Contacted', 'pending', 'Pending Owner Confirmation', 'approved', 'resolved'].includes(c.status)
+        ) || (itemToPrint.claims && itemToPrint.claims[0]) || null;
+
+        const hasClaimOrFinder = Boolean(
+          itemToPrint.foundBy ||
+          activeClaim ||
+          itemToPrint.claimStatus
+        );
+
+        const isResolved =
+          (itemToPrint.status || '').toLowerCase() === 'resolved' ||
+          (itemToPrint.status || '').toLowerCase() === 'claimed';
+
+        const showFinderHistory =
+          itemToPrint.claims &&
+          (itemToPrint.claims.length > 1 || itemToPrint.claims.some((c) => c.status === 'rejected'));
+
+        return (
+          <div className="printable-single-report simple-report-container">
+            {/* HEADER */}
+            <div className="simple-report-header">
+              <h1 className="simple-report-main-title">COLLEGE LOST & FOUND MANAGEMENT SYSTEM</h1>
+              <h2 className="simple-report-sub-title">Individual Item Report</h2>
+            </div>
+
+            <div className="simple-report-divider" />
+
+            {/* 1. ITEM DETAILS */}
+            <div className="simple-report-section">
+              <h3 className="simple-report-section-title">Item Details</h3>
+              <div className="simple-report-data-list">
+                <div className="simple-report-row">
+                  <span className="simple-report-label">Item Name:</span>
+                  <span className="simple-report-value font-bold">{itemToPrint.title}</span>
+                </div>
+                <div className="simple-report-row">
+                  <span className="simple-report-label">Category:</span>
+                  <span className="simple-report-value">{itemToPrint.category}</span>
+                </div>
+                <div className="simple-report-row">
+                  <span className="simple-report-label">Location:</span>
+                  <span className="simple-report-value">{itemToPrint.location}</span>
+                </div>
+                <div className="simple-report-row">
+                  <span className="simple-report-label">
+                    {(itemToPrint.type || '').toLowerCase() === 'lost' ? 'Date Lost:' : 'Date Found:'}
+                  </span>
+                  <span className="simple-report-value">{formatDate(itemToPrint.date)}</span>
+                </div>
+                <div className="simple-report-row">
+                  <span className="simple-report-label">Description:</span>
+                  <span className="simple-report-value">{itemToPrint.description || 'No description provided'}</span>
+                </div>
+                <div className="simple-report-row">
+                  <span className="simple-report-label">Report Type:</span>
+                  <span className={`simple-report-badge badge-${(itemToPrint.type || '').toLowerCase()}`}>
+                    {(itemToPrint.type || '').toUpperCase()}
+                  </span>
+                </div>
+                <div className="simple-report-row">
+                  <span className="simple-report-label">Current Status:</span>
+                  <span className={`simple-report-status-badge ${statusBadge.cls}`}>
+                    {statusBadge.text}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div className="simple-report-divider" />
+
+            {/* 2. REPORTED BY */}
+            <div className="simple-report-section">
+              <h3 className="simple-report-section-title">Reported By</h3>
+              <div className="simple-report-data-list">
+                <div className="simple-report-row">
+                  <span className="simple-report-label">Student Name:</span>
+                  <span className="simple-report-value">{itemToPrint.reportedBy?.name || studentName}</span>
+                </div>
+                <div className="simple-report-row">
+                  <span className="simple-report-label">Student ID:</span>
+                  <span className="simple-report-value">{itemToPrint.reportedBy?.studentId || studentId}</span>
+                </div>
+                <div className="simple-report-row">
+                  <span className="simple-report-label">College Email:</span>
+                  <span className="simple-report-value">{itemToPrint.reportedBy?.email || studentEmail}</span>
+                </div>
+                <div className="simple-report-row">
+                  <span className="simple-report-label">Phone:</span>
+                  <span className="simple-report-value">{itemToPrint.reportedBy?.phone || studentPhone || 'N/A'}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* 3. CLAIM / FINDER (Only show this section when claim/finder information exists) */}
+            {hasClaimOrFinder && (
+              <>
+                <div className="simple-report-divider" />
+                <div className="simple-report-section">
+                  <h3 className="simple-report-section-title">Claim / Finder</h3>
+                  <div className="simple-report-data-list">
+                    <div className="simple-report-row">
+                      <span className="simple-report-label">Claim Status:</span>
+                      <span className="simple-report-value font-semibold">
+                        {itemToPrint.claimStatus
+                          ? itemToPrint.claimStatus.toUpperCase()
+                          : (activeClaim?.status ? activeClaim.status.toUpperCase() : 'PENDING')}
+                      </span>
+                    </div>
+                    <div className="simple-report-row">
+                      <span className="simple-report-label">Found By:</span>
+                      <span className="simple-report-value">
+                        {itemToPrint.foundBy?.name || activeClaim?.fullName || activeClaim?.finder?.name || 'Finder Reported'}
+                      </span>
+                    </div>
+                    <div className="simple-report-row">
+                      <span className="simple-report-label">Finder Name:</span>
+                      <span className="simple-report-value font-bold">
+                        {itemToPrint.foundBy?.name || activeClaim?.fullName || activeClaim?.finder?.name || 'N/A'}
+                      </span>
+                    </div>
+                    <div className="simple-report-row">
+                      <span className="simple-report-label">Claim Date:</span>
+                      <span className="simple-report-value">
+                        {formatDate(activeClaim?.submittedAt || activeClaim?.createdAt || itemToPrint.updatedAt)}
+                      </span>
+                    </div>
+                    {(activeClaim?.finderMessage || activeClaim?.additionalDetails) && (
+                      <div className="simple-report-row">
+                        <span className="simple-report-label">Finder Message:</span>
+                        <span className="simple-report-value">
+                          {activeClaim.finderMessage || activeClaim.additionalDetails}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </>
+            )}
+
+            {/* 4. RESOLUTION (Only show when applicable) */}
+            {isResolved && (
+              <>
+                <div className="simple-report-divider" />
+                <div className="simple-report-section">
+                  <h3 className="simple-report-section-title">Resolution</h3>
+                  <div className="simple-report-data-list">
+                    <div className="simple-report-row">
+                      <span className="simple-report-label">Resolution Status:</span>
+                      <span className="simple-report-status-badge status-resolved">RESOLVED</span>
+                    </div>
+                    <div className="simple-report-row">
+                      <span className="simple-report-label">Resolution Date:</span>
+                      <span className="simple-report-value">{formatDate(itemToPrint.resolvedAt || itemToPrint.updatedAt)}</span>
+                    </div>
+                    <div className="simple-report-row">
+                      <span className="simple-report-label">Resolved By:</span>
+                      <span className="simple-report-value">
+                        {itemToPrint.claimedBy?.name || itemToPrint.foundBy?.name || 'Owner Confirmed / Admin Verified'}
+                      </span>
+                    </div>
+                    <div className="simple-report-row">
+                      <span className="simple-report-label">Message:</span>
+                      <span className="simple-report-value">
+                        This item has been officially recovered and marked as resolved.
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </>
+            )}
+
+            {/* 5. FINDER HISTORY (Only show this section when there are multiple finder attempts) */}
+            {showFinderHistory && (
+              <>
+                <div className="simple-report-divider" />
+                <div className="simple-report-section">
+                  <h3 className="simple-report-section-title">Finder History</h3>
+                  <div className="simple-finder-history-container">
+                    {itemToPrint.claims.map((attempt, idx) => (
+                      <div key={attempt._id || idx} className="simple-finder-history-card">
+                        <div className="simple-report-row">
+                          <span className="simple-report-label">Finder:</span>
+                          <span className="simple-report-value font-semibold">
+                            {attempt.fullName || attempt.finder?.name || 'Student'}
+                          </span>
+                        </div>
+                        <div className="simple-report-row">
+                          <span className="simple-report-label">Status:</span>
+                          <span className="simple-report-value">
+                            <span className={`simple-history-tag tag-${(attempt.status || '').toLowerCase()}`}>
+                              {attempt.status === 'rejected'
+                                ? 'Rejected'
+                                : attempt.status === 'resolved'
+                                ? 'Resolved'
+                                : attempt.status}
+                            </span>
+                          </span>
+                        </div>
+                        <div className="simple-report-row">
+                          <span className="simple-report-label">Date:</span>
+                          <span className="simple-report-value">
+                            {formatDate(attempt.rejectedAt || attempt.submittedAt || attempt.createdAt)}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </>
+            )}
+
+            <div className="simple-report-divider" />
+
+            <div className="simple-report-footer">
+              <span>Report ID: {itemToPrint._id}</span>
+              <span>Generated: {formatDateTime(new Date())}</span>
+            </div>
           </div>
+        );
+      })()}
 
-          <div className="print-divider" />
-
-          <div className="print-section">
-            <h2 className="print-section-title">REPORT DETAILS</h2>
-            <div className="print-table">
-              <div className="print-row">
-                <span className="print-label">Report ID:</span>
-                <span className="print-value">{itemToPrint._id}</span>
-              </div>
-              <div className="print-row">
-                <span className="print-label">Report Type:</span>
-                <span className="print-value print-type-badge">
-                  {itemToPrint.type?.toUpperCase()}
-                </span>
-              </div>
-              <div className="print-row">
-                <span className="print-label">Item Name:</span>
-                <span className="print-value font-bold">{itemToPrint.title}</span>
-              </div>
-              <div className="print-row">
-                <span className="print-label">Category:</span>
-                <span className="print-value">{itemToPrint.category}</span>
-              </div>
-              <div className="print-row">
-                <span className="print-label">Description:</span>
-                <span className="print-value">{itemToPrint.description}</span>
-              </div>
-              <div className="print-row">
-                <span className="print-label">
-                  {itemToPrint.type === 'lost' ? 'Date Lost:' : 'Date Found:'}
-                </span>
-                <span className="print-value">{formatDate(itemToPrint.date)}</span>
-              </div>
-              <div className="print-row">
-                <span className="print-label">Location:</span>
-                <span className="print-value">{itemToPrint.location}</span>
-              </div>
-              <div className="print-row">
-                <span className="print-label">Submitted At:</span>
-                <span className="print-value">{formatDateTime(itemToPrint.createdAt)}</span>
-              </div>
-              <div className="print-row">
-                <span className="print-label">Current Status:</span>
-                <span className="print-value print-status-badge">
-                  {(itemToPrint.status || 'Active').toUpperCase()}
-                </span>
-              </div>
+      {/* 2. COMPLETE HISTORY PRINT VIEW (Simplified Collection of All Reports) */}
+      {printMode === 'history' && (
+        <div className="printable-history-report simple-history-container">
+          <div className="simple-history-header">
+            <h1 className="simple-history-main-title">COLLEGE LOST & FOUND MANAGEMENT SYSTEM</h1>
+            <h2 className="simple-history-sub-title">Complete Reports History</h2>
+            <div className="simple-history-meta">
+              <span><strong>Generated Date/Time:</strong> {formatDateTime(new Date())}</span>
+              <span><strong>Total Records:</strong> {items.length}</span>
             </div>
           </div>
 
-          <div className="print-divider" />
+          <div className="simple-history-divider" />
 
-          <div className="print-section">
-            <h2 className="print-section-title">STUDENT DETAILS</h2>
-            <div className="print-table">
-              <div className="print-row">
-                <span className="print-label">Student Name:</span>
-                <span className="print-value">
-                  {itemToPrint.reportedBy?.name || studentName}
-                </span>
-              </div>
-              <div className="print-row">
-                <span className="print-label">Student ID:</span>
-                <span className="print-value">
-                  {itemToPrint.reportedBy?.studentId || studentId}
-                </span>
-              </div>
-              <div className="print-row">
-                <span className="print-label">College Email:</span>
-                <span className="print-value">
-                  {itemToPrint.reportedBy?.email || studentEmail}
-                </span>
-              </div>
-              <div className="print-row">
-                <span className="print-label">Phone:</span>
-                <span className="print-value">
-                  {itemToPrint.reportedBy?.phone || studentPhone || 'N/A'}
-                </span>
-              </div>
-            </div>
+          {/* SUMMARY */}
+          <div className="simple-history-summary">
+            <div className="summary-stat-item">Total Reports: <strong>{items.length}</strong></div>
+            <div className="summary-stat-item">Lost Reports: <strong>{lostCount}</strong></div>
+            <div className="summary-stat-item">Found Reports: <strong>{foundCount}</strong></div>
+            <div className="summary-stat-item">Active Reports: <strong>{activeCount}</strong></div>
+            <div className="summary-stat-item">Claimed Reports: <strong>{claimedCount}</strong></div>
+            <div className="summary-stat-item">Resolved Reports: <strong>{resolvedCount}</strong></div>
           </div>
 
-          <div className="print-divider" />
+          <div className="simple-history-divider-thick" />
 
-          <div className="print-section">
-            <h2 className="print-section-title">CLAIM / RESOLUTION</h2>
-            <div className="print-table">
-              <div className="print-row">
-                <span className="print-label">Claim Status:</span>
-                <span className="print-value">
-                  {itemToPrint.claimStatus
-                    ? itemToPrint.claimStatus.toUpperCase()
-                    : 'No Claims Filed'}
-                </span>
-              </div>
-              <div className="print-row">
-                <span className="print-label">Resolution:</span>
-                <span className="print-value">
-                  {itemToPrint.status === 'Resolved' || itemToPrint.status === 'Claimed'
-                    ? `Item officially marked as ${itemToPrint.status} on ${formatDate(
-                        itemToPrint.updatedAt
-                      )}`
-                    : 'In Progress / Active Investigation'}
-                </span>
-              </div>
-            </div>
+          {/* REPEAT REPORT 1, REPORT 2, ... for ALL reports */}
+          <div className="simple-history-cards-list">
+            {items.map((it, idx) => {
+              const itemStatusBadge = getSimpleStatusBadge(it);
+              const activeClaim = it.claims?.find(
+                (c) => ['Contacted', 'pending', 'Pending Owner Confirmation', 'approved', 'resolved'].includes(c.status)
+              ) || (it.claims && it.claims[0]) || null;
+
+              const hasClaimOrFinder = Boolean(
+                it.foundBy ||
+                activeClaim ||
+                it.claimStatus
+              );
+
+              const isResolved =
+                (it.status || '').toLowerCase() === 'resolved' ||
+                (it.status || '').toLowerCase() === 'claimed';
+
+              const rejectedClaims = (it.claims || []).filter((c) => c.status === 'rejected');
+              const hasRejectedHistory = rejectedClaims.length > 0;
+
+              return (
+                <div key={it._id || idx} className="simple-history-report-card">
+                  <div className="simple-report-card-top">
+                    <span className="simple-report-number">REPORT {idx + 1}</span>
+                    <span className="simple-report-id">Report ID: {it._id}</span>
+                  </div>
+
+                  <div className="simple-report-divider" />
+
+                  {/* 1. Item Details */}
+                  <div className="simple-report-section">
+                    <h3 className="simple-report-section-title">Item Details</h3>
+                    <div className="simple-report-data-list">
+                      <div className="simple-report-row">
+                        <span className="simple-report-label">Item Name:</span>
+                        <span className="simple-report-value font-bold">{it.title}</span>
+                      </div>
+                      <div className="simple-report-row">
+                        <span className="simple-report-label">Type:</span>
+                        <span className={`simple-report-badge badge-${(it.type || '').toLowerCase()}`}>
+                          {(it.type || '').toUpperCase()}
+                        </span>
+                      </div>
+                      <div className="simple-report-row">
+                        <span className="simple-report-label">Category:</span>
+                        <span className="simple-report-value">{it.category}</span>
+                      </div>
+                      <div className="simple-report-row">
+                        <span className="simple-report-label">Location:</span>
+                        <span className="simple-report-value">{it.location}</span>
+                      </div>
+                      <div className="simple-report-row">
+                        <span className="simple-report-label">Date:</span>
+                        <span className="simple-report-value">{formatDate(it.date)}</span>
+                      </div>
+                      <div className="simple-report-row">
+                        <span className="simple-report-label">Description:</span>
+                        <span className="simple-report-value">{it.description || 'No description provided'}</span>
+                      </div>
+                      <div className="simple-report-row">
+                        <span className="simple-report-label">Current Status:</span>
+                        <span className={`simple-report-status-badge ${itemStatusBadge.cls}`}>
+                          {itemStatusBadge.text}
+                        </span>
+                      </div>
+                      <div className="simple-report-row">
+                        <span className="simple-report-label">Claim Status:</span>
+                        <span className="simple-report-value font-semibold">
+                          {it.claimStatus ? it.claimStatus.toUpperCase() : (activeClaim?.status ? activeClaim.status.toUpperCase() : 'NONE')}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="simple-report-divider" />
+
+                  {/* 2. Reported By */}
+                  <div className="simple-report-section">
+                    <h3 className="simple-report-section-title">Reported By</h3>
+                    <div className="simple-report-data-list">
+                      <div className="simple-report-row">
+                        <span className="simple-report-label">Student Name:</span>
+                        <span className="simple-report-value">{it.reportedBy?.name || studentName}</span>
+                      </div>
+                      <div className="simple-report-row">
+                        <span className="simple-report-label">Student ID:</span>
+                        <span className="simple-report-value">{it.reportedBy?.studentId || studentId}</span>
+                      </div>
+                      <div className="simple-report-row">
+                        <span className="simple-report-label">College Email:</span>
+                        <span className="simple-report-value">{it.reportedBy?.email || studentEmail}</span>
+                      </div>
+                      <div className="simple-report-row">
+                        <span className="simple-report-label">Phone:</span>
+                        <span className="simple-report-value">{it.reportedBy?.phone || studentPhone || 'N/A'}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 3. Finder / Claim (Only show when a finder/claim exists) */}
+                  {hasClaimOrFinder && (
+                    <>
+                      <div className="simple-report-divider" />
+                      <div className="simple-report-section">
+                        <h3 className="simple-report-section-title">Finder / Claim</h3>
+                        <div className="simple-report-data-list">
+                          <div className="simple-report-row">
+                            <span className="simple-report-label">Finder Name:</span>
+                            <span className="simple-report-value font-bold">
+                              {it.foundBy?.name || activeClaim?.fullName || activeClaim?.finder?.name || 'N/A'}
+                            </span>
+                          </div>
+                          <div className="simple-report-row">
+                            <span className="simple-report-label">Finder Status:</span>
+                            <span className="simple-report-value">
+                              {it.foundBy ? 'Finder Reported' : (activeClaim ? activeClaim.status : 'None')}
+                            </span>
+                          </div>
+                          <div className="simple-report-row">
+                            <span className="simple-report-label">Claim Date:</span>
+                            <span className="simple-report-value">
+                              {formatDate(activeClaim?.submittedAt || activeClaim?.createdAt || it.updatedAt)}
+                            </span>
+                          </div>
+                          {(activeClaim?.finderMessage || activeClaim?.additionalDetails) && (
+                            <div className="simple-report-row">
+                              <span className="simple-report-label">Finder Message:</span>
+                              <span className="simple-report-value">
+                                {activeClaim.finderMessage || activeClaim.additionalDetails}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </>
+                  )}
+
+                  {/* 4. Resolution (Only show when applicable) */}
+                  {isResolved && (
+                    <>
+                      <div className="simple-report-divider" />
+                      <div className="simple-report-section">
+                        <h3 className="simple-report-section-title">Resolution</h3>
+                        <div className="simple-report-data-list">
+                          <div className="simple-report-row">
+                            <span className="simple-report-label">Resolution Status:</span>
+                            <span className="simple-report-status-badge status-resolved">RESOLVED</span>
+                          </div>
+                          <div className="simple-report-row">
+                            <span className="simple-report-label">Resolution Date:</span>
+                            <span className="simple-report-value">{formatDate(it.resolvedAt || it.updatedAt)}</span>
+                          </div>
+                          <div className="simple-report-row">
+                            <span className="simple-report-label">Admin Verified / Resolved By:</span>
+                            <span className="simple-report-value">
+                              {it.claimedBy?.name || it.foundBy?.name || 'Owner Confirmed / Admin Verified'}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    </>
+                  )}
+
+                  {/* 5. Rejected Finder History (Only show when rejected finder attempts exist) */}
+                  {hasRejectedHistory && (
+                    <>
+                      <div className="simple-report-divider" />
+                      <div className="simple-report-section">
+                        <h3 className="simple-report-section-title">Finder History</h3>
+                        <div className="simple-rejected-history-list">
+                          {rejectedClaims.map((rej, rejIdx) => (
+                            <div key={rej._id || rejIdx} className="simple-rejected-item">
+                              <div className="simple-report-row">
+                                <span className="simple-report-label font-bold" style={{ width: 'auto' }}>
+                                  {rej.fullName || rej.finder?.name || 'Finder'} — Rejected
+                                </span>
+                              </div>
+                              <div className="simple-report-row">
+                                <span className="simple-report-label">Date:</span>
+                                <span className="simple-report-value">
+                                  {formatDate(rej.rejectedAt || rej.submittedAt || rej.createdAt)}
+                                </span>
+                              </div>
+                              <div className="simple-report-row">
+                                <span className="simple-report-label">Reason/Details:</span>
+                                <span className="simple-report-value">
+                                  {rej.rejectionReason || 'Claim rejected by owner ("This Is Not My Item")'}
+                                </span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </>
+                  )}
+                </div>
+              );
+            })}
           </div>
 
-          <div className="print-divider" />
+          <div className="simple-history-divider-thick" />
 
-          <div className="print-footer">
-            <p>This report is generated from the College Lost & Found Management System.</p>
-            <p>Verification Timestamp: {new Date().toLocaleString('en-GB')}</p>
+          <div className="simple-report-footer">
+            <span>COLLEGE LOST & FOUND MANAGEMENT SYSTEM</span>
+            <span>Complete Reports History — {items.length} Records</span>
+            <span>Generated: {formatDateTime(new Date())}</span>
           </div>
         </div>
       )}
 
-      {/* 2. COMPLETE STUDENT HISTORY PRINT VIEW */}
-      <div className="printable-history-report">
-        <div className="print-header">
-          <h1 className="print-main-title">COLLEGE LOST & FOUND MANAGEMENT SYSTEM</h1>
-          <h2 className="print-doc-title">STUDENT LOST & FOUND HISTORY</h2>
-          <p className="print-sub-title">Official Student Activity Record for Academic & Administrative File</p>
-        </div>
-
-        <div className="print-divider" />
-
-        <div className="print-summary-box">
-          <div className="print-student-info">
-            <div><strong>Student Name:</strong> {studentName}</div>
-            <div><strong>Student ID:</strong> {studentId}</div>
-            <div><strong>College Email:</strong> {studentEmail}</div>
-          </div>
-
-          <div className="print-counts-row">
-            <div className="count-box">Total Reports: <strong>{totalCount}</strong></div>
-            <div className="count-box">Lost Reports: <strong>{lostCount}</strong></div>
-            <div className="count-box">Found Reports: <strong>{foundCount}</strong></div>
-            <div className="count-box">Active Reports: <strong>{activeCount}</strong></div>
-            <div className="count-box">Claimed Reports: <strong>{claimedCount}</strong></div>
-            <div className="count-box">Resolved Reports: <strong>{resolvedCount}</strong></div>
-          </div>
-        </div>
-
-        <div className="print-divider" />
-
-        <div className="print-section">
-          <h3 className="print-section-title">REPORTS ACTIVITY LEDGER</h3>
-          <table className="print-history-table">
-            <thead>
-              <tr>
-                <th>Report ID</th>
-                <th>Item</th>
-                <th>Type</th>
-                <th>Category</th>
-                <th>Location</th>
-                <th>Date</th>
-                <th>Status</th>
-                <th>Claim Status</th>
-                <th>Resolution</th>
-              </tr>
-            </thead>
-            <tbody>
-              {items.map((it) => (
-                <tr key={it._id}>
-                  <td className="mono">{it._id.slice(-6)}</td>
-                  <td><strong>{it.title}</strong></td>
-                  <td>{it.type?.toUpperCase()}</td>
-                  <td>{it.category}</td>
-                  <td>{it.location}</td>
-                  <td>{formatDate(it.date)}</td>
-                  <td>{it.status}</td>
-                  <td>{it.claimStatus || 'None'}</td>
-                  <td>
-                    {it.status === 'Resolved' || it.status === 'Claimed'
-                      ? `${it.status} (${formatDate(it.updatedAt)})`
-                      : 'Pending'}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-
-        <div className="print-divider" />
-
-        <div className="print-footer">
-          <p>This report is generated from the College Lost & Found Management System.</p>
-          <p>Generated on: {new Date().toLocaleString('en-GB')}</p>
-        </div>
-      </div>
+      {/* Owner Recovery OTP Verification Modal */}
+      <OwnerRecoveryOtpModal
+        isOpen={isRecoveryModalOpen}
+        onClose={() => {
+          setIsRecoveryModalOpen(false);
+          setRecoveryTargetItem(null);
+        }}
+        itemId={recoveryTargetItem?._id}
+        itemTitle={recoveryTargetItem?.title}
+        onSuccess={() => {
+          fetchReports();
+          if (selectedItem && selectedItem._id === recoveryTargetItem?._id) {
+            setSelectedItem(null);
+          }
+        }}
+      />
     </div>
   );
 }

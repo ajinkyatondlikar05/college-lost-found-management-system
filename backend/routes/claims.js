@@ -2,12 +2,14 @@ const express = require('express');
 const router = express.Router();
 const Claim = require('../models/Claim');
 const Item = require('../models/Item');
+const User = require('../models/User');
 const Otp = require('../models/Otp');
 const { protect, adminOnly } = require('../middleware/auth');
 const upload = require('../middleware/upload');
 const { uploadImage } = require('../config/cloudinary');
 
 const emailUtils = require('../utils/email');
+
 
 // @route   GET /api/claims
 // @desc    Get all claim requests (with search, filter, pagination)
@@ -99,12 +101,24 @@ router.post('/', protect, upload.single('image'), async (req, res) => {
       return res.status(400).json({ message: 'Full name must be at least 2 characters long' });
     }
 
-    // Validate College Email Address (Mandatory, must end with @apsit.edu.in)
+    // Validate College Email Address (Mandatory, must end with @apsit.edu.in or temporary test email)
     const submittedEmail = (email || '').trim().toLowerCase();
     if (!submittedEmail) {
       return res.status(400).json({ message: 'College email address is required' });
     }
-    if (!submittedEmail.endsWith('@apsit.edu.in')) {
+
+    // ============================================================================
+    // PERMANENT PRODUCTION / DEMO FINDER EXCEPTION (ajinkyatondlikar@gmail.com)
+    // ============================================================================
+    const DEMO_FINDER_EMAIL = (process.env.DEMO_LOGIN_EMAIL || process.env.TEMP_TEST_LOGIN_EMAIL || 'ajinkyatondlikar@gmail.com').trim().toLowerCase();
+    const isAllowedFinderEmail = (e) => {
+      if (!e) return false;
+      const normalized = e.trim().toLowerCase();
+      return normalized.endsWith('@apsit.edu.in') || normalized === DEMO_FINDER_EMAIL;
+    };
+    // ============================================================================
+
+    if (!isAllowedFinderEmail(submittedEmail)) {
       return res.status(400).json({ message: 'A valid college email ending with @apsit.edu.in is required' });
     }
 
@@ -160,7 +174,7 @@ router.post('/', protect, upload.single('image'), async (req, res) => {
       // Prevent duplicate active claims by any user for the same item
       const existingClaim = await Claim.findOne({
         item: item._id,
-        status: { $in: ['pending', 'Contacted', 'Pending Owner Confirmation', 'approved'] },
+        status: { $in: ['pending', 'Contacted', 'Pending Owner Confirmation', 'Pending Admin Verification', 'approved'] },
       });
       if (existingClaim) {
         const isSelf = existingClaim.finder && existingClaim.finder.toString() === req.user._id.toString();
@@ -229,6 +243,7 @@ router.post('/', protect, upload.single('image'), async (req, res) => {
         finderEmail: submittedEmail,
         finderPhone: cleanPhone,
         finderMessage: messageContent,
+        proofImage: image,
       });
 
       if (!emailResult.success) {
@@ -259,41 +274,182 @@ router.post('/', protect, upload.single('image'), async (req, res) => {
 // @access  Admin
 router.put('/:id/status', protect, adminOnly, async (req, res) => {
   try {
-    const { status } = req.body;
-    if (!['pending', 'Contacted', 'Pending Owner Confirmation', 'approved', 'rejected', 'resolved'].includes(status)) {
+    const { status, reason, adminRejectionReason } = req.body;
+    const allowedStatuses = [
+      'pending',
+      'Contacted',
+      'Pending Owner Confirmation',
+      'Pending Admin Verification',
+      'Admin Rejected',
+      'approved',
+      'rejected',
+      'resolved',
+    ];
+    if (!allowedStatuses.includes(status)) {
       return res.status(400).json({ message: 'Invalid status' });
     }
 
     const claim = await Claim.findById(req.params.id);
     if (!claim) return res.status(404).json({ message: 'Claim not found' });
 
-    claim.status = status;
-    claim.processedBy = req.user._id;
-    if (status === 'approved' || status === 'resolved') {
-      claim.resolvedAt = new Date();
+    const isApprovalOrResolution = status === 'approved' || status === 'resolved';
+    const isAdminRejected = status === 'Admin Rejected' || (status === 'rejected' && claim.status === 'Pending Admin Verification');
+
+    const now = new Date();
+
+    if (isApprovalOrResolution) {
+      claim.status = 'resolved';
+      claim.resolvedAt = claim.resolvedAt || now;
+      claim.adminVerifier = req.user._id;
+      claim.adminVerifiedAt = now;
+      claim.processedBy = req.user._id;
+    } else if (isAdminRejected) {
+      claim.status = 'Admin Rejected';
+      claim.adminRejectedAt = now;
+      claim.adminRejectionDate = now;
+      claim.adminRejectionReason = (reason || adminRejectionReason || 'Admin rejected verification').trim();
+      claim.rejectedAt = now;
+      claim.rejectedBy = req.user._id;
+      claim.processedBy = req.user._id;
+    } else {
+      claim.status = status;
+      claim.processedBy = req.user._id;
+      if (status === 'rejected') {
+        claim.rejectedAt = now;
+        claim.rejectedBy = req.user._id;
+        claim.adminRejectionReason = (reason || adminRejectionReason || '').trim();
+      }
     }
     await claim.save();
 
     // If approved or resolved and associated with an item, update item status to Resolved
-    if ((status === 'approved' || status === 'resolved') && claim.item) {
-      await Item.findByIdAndUpdate(claim.item, {
-        status: 'Resolved',
-        foundBy: claim.finder || null,
-        claimedBy: claim.finder || null,
-        resolvedAt: new Date(),
-      });
+    if (isApprovalOrResolution && claim.item) {
+      const curItem = await Item.findById(claim.item);
+      if (curItem) {
+        curItem.status = 'Resolved';
+        curItem.resolvedAt = claim.resolvedAt || now;
+        if (!curItem.recoveryType) {
+          curItem.recoveryType = curItem.type === 'found' ? 'normal_found' : 'finder_found';
+        }
+        if (curItem.type === 'found') {
+          curItem.claimedBy = claim.owner || claim.finder || curItem.claimedBy;
+        } else {
+          curItem.foundBy = claim.finder || curItem.foundBy;
+          curItem.claimedBy = claim.finder || curItem.claimedBy;
+        }
+        await curItem.save();
+      }
     }
 
-    // Send email notification to claimant if approved/rejected
-    if (status === 'approved' || status === 'rejected') {
-      await emailUtils.sendClaimStatusEmail(claim);
+    // If rejected (not Admin Rejected) and associated with an item, reset foundBy if it was set to this finder
+    // If Admin Rejected: item MUST NOT become Resolved, preserve claim/finder history, keep audit history
+    if (status === 'rejected' && !isAdminRejected && claim.item) {
+      const targetItem = await Item.findById(claim.item);
+      if (targetItem && targetItem.foundBy && String(targetItem.foundBy) === String(claim.finder)) {
+        targetItem.foundBy = null;
+        await targetItem.save();
+      }
+    }
+
+    // Send email notification to claimant if rejected
+    if (status === 'rejected' || isAdminRejected) {
+      try {
+        await emailUtils.sendClaimStatusEmail(claim);
+      } catch (err) {
+        console.error(`[SMTP] Claim rejection email delivery failed: ${err.message}`);
+      }
+    }
+
+    // If approved or resolved by admin, send resolution emails to owner and finder
+    if (isApprovalOrResolution) {
+      try {
+        let targetItem = null;
+        if (claim.item) {
+          targetItem = await Item.findById(claim.item);
+        }
+
+        let ownerDoc = null;
+        if (claim.owner) {
+          ownerDoc = (claim.owner && claim.owner.email) ? claim.owner : await User.findById(claim.owner);
+        }
+        if (!ownerDoc && targetItem && targetItem.reportedBy) {
+          ownerDoc = (targetItem.reportedBy && targetItem.reportedBy.email) ? targetItem.reportedBy : await User.findById(targetItem.reportedBy);
+        }
+
+        let finderDoc = null;
+        if (claim.finder) {
+          finderDoc = (claim.finder && claim.finder.email) ? claim.finder : await User.findById(claim.finder);
+        }
+        if (!finderDoc && targetItem && targetItem.foundBy) {
+          finderDoc = (targetItem.foundBy && targetItem.foundBy.email) ? targetItem.foundBy : await User.findById(targetItem.foundBy);
+        }
+
+        const isFoundItem = targetItem && targetItem.type === 'found';
+
+        const itemName = (targetItem && targetItem.title) || claim.itemName || 'Item';
+        const resolutionDate = claim.resolvedAt || new Date();
+
+        const ownerName = isFoundItem
+          ? (claim.fullName || (finderDoc ? finderDoc.name : 'Student'))
+          : (ownerDoc ? ownerDoc.name : (targetItem?.reportedBy?.name || 'Student'));
+        const ownerEmail = isFoundItem
+          ? (claim.email || (finderDoc ? finderDoc.email : null))
+          : (ownerDoc ? ownerDoc.email : (targetItem?.reportedBy?.email || null));
+
+        const finalFinderName = isFoundItem
+          ? (targetItem?.reportedBy?.name || 'Student')
+          : (claim.fullName || (finderDoc ? finderDoc.name : (targetItem?.foundBy?.name || 'Student')));
+        const finderEmail = isFoundItem
+          ? (targetItem?.reportedBy?.email || null)
+          : (claim.email || (finderDoc ? finderDoc.email : (targetItem?.foundBy?.email || null)));
+
+        // Send owner resolution email (idempotent: only if not already sent)
+        if (ownerEmail && !claim.ownerResolutionEmailSentAt) {
+          try {
+            const ownerResult = await emailUtils.sendOwnerResolutionEmail({
+              ownerEmail,
+              ownerName,
+              itemName,
+              finderName: finalFinderName,
+              resolutionDate,
+            });
+            if (ownerResult && ownerResult.success) {
+              claim.ownerResolutionEmailSentAt = new Date();
+              await claim.save();
+            }
+          } catch (ownerErr) {
+            console.error(`[SMTP] Owner resolution email delivery failed: ${ownerErr.message}`);
+          }
+        }
+
+        // Send finder resolution email (idempotent: only if not already sent)
+        if (finderEmail && !claim.finderResolutionEmailSentAt) {
+          try {
+            const finderResult = await emailUtils.sendFinderResolutionEmail({
+              finderEmail,
+              finderName: finalFinderName,
+              itemName,
+              resolutionDate,
+            });
+            if (finderResult && finderResult.success) {
+              claim.finderResolutionEmailSentAt = new Date();
+              await claim.save();
+            }
+          } catch (finderErr) {
+            console.error(`[SMTP] Finder resolution email delivery failed: ${finderErr.message}`);
+          }
+        }
+      } catch (notifErr) {
+        console.error(`[SMTP] Admin resolution notification handling error: ${notifErr.message}`);
+      }
     }
 
     const updated = await Claim.findById(claim._id)
       .populate('item')
       .populate('owner', 'name email phone studentId department')
       .populate('finder', 'name email phone studentId department')
-      .populate('processedBy', 'name email');
+      .populate('processedBy', 'name email')
+      .populate('adminVerifier', 'name email');
 
     res.json(updated);
   } catch (error) {

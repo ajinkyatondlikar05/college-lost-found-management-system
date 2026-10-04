@@ -54,8 +54,10 @@ router.get('/', async (req, res) => {
     const items = await Item.find(filter)
       .populate([
         { path: 'reportedBy', select: 'name email department phone studentId' },
-        { path: 'foundBy', select: 'name' },
+        { path: 'foundBy', select: 'name email department phone studentId' },
         { path: 'claimedBy', select: 'name email department phone studentId' },
+        { path: 'recoveredBy', select: 'name email department phone studentId' },
+        { path: 'ownerConfirmedBy', select: 'name email department phone studentId' },
       ])
       .sort(sortObj)
       .skip((page - 1) * limit)
@@ -82,6 +84,8 @@ router.get('/:id', async (req, res) => {
         { path: 'reportedBy', select: 'name email phone department studentId' },
         { path: 'foundBy', select: 'name email phone department studentId' },
         { path: 'claimedBy', select: 'name email phone department studentId' },
+        { path: 'recoveredBy', select: 'name email phone department studentId' },
+        { path: 'ownerConfirmedBy', select: 'name email phone department studentId' },
       ]);
     if (!item) return res.status(404).json({ message: 'Item not found' });
 
@@ -131,6 +135,9 @@ router.get('/:id', async (req, res) => {
           if (!isFinder) {
             delete c.phone;
             delete c.email;
+            delete c.finderMessage;
+            delete c.additionalDetails;
+            delete c.image;
             if (c.finder && typeof c.finder === 'object') {
               c.finder = {
                 _id: c.finder._id,
@@ -380,6 +387,8 @@ router.get('/user/my-reports', protect, async (req, res) => {
       .populate('reportedBy', 'name email department phone studentId')
       .populate('foundBy', 'name email department phone studentId')
       .populate('claimedBy', 'name email studentId')
+      .populate('recoveredBy', 'name email department phone studentId')
+      .populate('ownerConfirmedBy', 'name email department phone studentId')
       .sort({ createdAt: -1 })
       .lean();
 
@@ -409,8 +418,84 @@ router.get('/user/my-reports', protect, async (req, res) => {
   }
 });
 
+// @route   POST /api/items/:id/recovery-otp
+// @desc    Send 6-digit OTP to authenticated owner's college email for "I Got My Item Back" verification
+// @access  Private (Owner only)
+router.post(['/:id/recovery-otp', '/:id/send-recovery-otp'], protect, async (req, res) => {
+  try {
+    const item = await Item.findById(req.params.id);
+    if (!item) {
+      return res.status(404).json({ message: 'Item not found' });
+    }
+
+    if (item.status === 'Resolved') {
+      return res.status(400).json({ message: 'This item has already been marked as resolved.' });
+    }
+
+    // Only owner (or admin) can request recovery OTP
+    const ownerId = item.reportedBy?._id ? item.reportedBy._id.toString() : (item.reportedBy ? item.reportedBy.toString() : '');
+    if (ownerId !== req.user._id.toString() && req.user.role !== 'admin') {
+      return res.status(403).json({ message: 'Only the item owner can initiate recovery OTP verification.' });
+    }
+
+    // Retrieve owner's verified college email from database (never trust arbitrary email from frontend)
+    const ownerUser = await User.findById(req.user._id);
+    if (!ownerUser || !ownerUser.email) {
+      return res.status(404).json({ message: 'Authenticated user email not found.' });
+    }
+
+    const email = ownerUser.email.toLowerCase().trim();
+    const name = ownerUser.name || 'Student';
+
+    console.log(`[OTP] Received recovery OTP verification request for recipient: ${email}`);
+
+    // Generate 6-digit numeric OTP
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+
+    // Delete any existing recovery OTPs for this email
+    await Otp.deleteMany({ email, purpose: { $in: ['item_recovery', 'owner_recovery'] } });
+
+    // Save new OTP
+    await Otp.create({
+      email,
+      otp,
+      purpose: 'item_recovery',
+      expiresAt,
+    });
+
+    console.log(`[OTP] 6-digit recovery verification OTP successfully generated and saved for recipient: ${email}`);
+
+    // Send OTP email
+    const emailRes = await emailUtils.sendOtpEmail(email, name, otp, 'recovery');
+    if (!emailRes.success) {
+      console.error(`[OTP] Recovery delivery failure for ${email}: ${emailRes.error}`);
+      return res.status(500).json({
+        message: 'Could not send verification OTP to your college email. Please try again.',
+        error: emailRes.error,
+      });
+    }
+
+    console.log(`[OTP] Recovery verification OTP successfully sent to: ${email}`);
+
+    // Masked college email
+    const [local, domain] = email.split('@');
+    const maskedLocal = local && local.length > 4 ? `${local.slice(0, 3)}***${local.slice(-2)}` : `${(local || '')[0] || '*'}***`;
+    const maskedEmail = `${maskedLocal}@${domain || 'apsit.edu.in'}`;
+
+    res.json({
+      success: true,
+      message: `We've sent a 6-digit OTP to ${maskedEmail}`,
+      maskedEmail,
+    });
+  } catch (error) {
+    console.error(`[OTP] Unexpected error during recovery OTP generation: ${error.message}`);
+    res.status(500).json({ message: error.message });
+  }
+});
+
 // @route   PUT /api/items/:id/recover
-// @desc    Lost item owner marks item as recovered/resolved ("I Got My Item Back")
+// @desc    Lost item owner submits recovery request after OTP verification (directly resolves item and claim without admin approval)
 // @access  Private (Owner or Admin)
 router.put('/:id/recover', protect, async (req, res) => {
   try {
@@ -431,26 +516,283 @@ router.put('/:id/recover', protect, async (req, res) => {
 
     const now = new Date();
 
+    // Admin behavior remains unchanged (can directly resolve without OTP if desired)
+    if (req.user.role === 'admin' && !req.body.otp) {
+      const claim = await Claim.findOne({
+        item: item._id,
+        status: { $in: ['Contacted', 'Pending Owner Confirmation', 'Pending Admin Verification', 'pending', 'approved'] },
+      }).sort({ createdAt: -1 });
+
+      if (claim) {
+        claim.status = 'resolved';
+        claim.resolvedAt = now;
+        await claim.save();
+
+        if (claim.finder) {
+          item.foundBy = claim.finder;
+          item.claimedBy = claim.finder;
+        }
+      }
+
+      item.status = 'Resolved';
+      if (!item.recoveryType) {
+        item.recoveryType = item.type === 'found' ? 'normal_found' : 'finder_found';
+      }
+      item.resolvedAt = now;
+      await item.save();
+
+      const populated = await Item.findById(item._id).populate([
+        { path: 'reportedBy', select: 'name email department phone studentId' },
+        { path: 'foundBy', select: 'name email department phone studentId' },
+        { path: 'claimedBy', select: 'name email department phone studentId' },
+      ]);
+
+      const result = populated && populated.toObject ? populated.toObject() : { ...populated };
+      result.success = true;
+      result.message = 'Item marked as recovered and resolved successfully!';
+      result.item = populated;
+      return res.json(result);
+    }
+
+    // For owner: OTP verification is mandatory
+    const submittedOtp = (req.body.otp || '').toString().trim();
+    if (!submittedOtp) {
+      return res.status(400).json({ message: 'Verification OTP is required to submit recovery for admin verification.' });
+    }
+
+    // Retrieve owner's verified college email from database (never trust frontend email/ID)
+    const ownerUser = await User.findById(req.user._id);
+    if (!ownerUser || !ownerUser.email) {
+      return res.status(404).json({ message: 'Authenticated user record not found.' });
+    }
+    const email = ownerUser.email.toLowerCase().trim();
+
+    // Check if OTP is expired
+    const expiredRecord = await Otp.findOne({
+      email,
+      otp: submittedOtp,
+      purpose: { $in: ['item_recovery', 'owner_recovery', 'report_lost_item', 'report_found_item', 'report_item'] },
+      expiresAt: { $lte: now },
+    });
+    if (expiredRecord) {
+      return res.status(400).json({ message: 'Verification OTP has expired. Please request a new OTP.' });
+    }
+
+    // Check valid non-expired OTP
+    const validOtpRecord = await Otp.findOne({
+      email,
+      otp: submittedOtp,
+      purpose: { $in: ['item_recovery', 'owner_recovery', 'report_lost_item', 'report_found_item', 'report_item'] },
+      expiresAt: { $gt: now },
+    });
+
+    if (!validOtpRecord) {
+      return res.status(400).json({ message: 'Invalid OTP code. Please check and try again.' });
+    }
+
+    // Invalidate/delete the OTP so it cannot be reused
+    await Otp.deleteMany({
+      email,
+      purpose: { $in: ['item_recovery', 'owner_recovery', 'report_lost_item', 'report_found_item', 'report_item'] },
+    });
+
     // Find the latest active claim for this item
     const claim = await Claim.findOne({
       item: item._id,
       status: { $in: ['Contacted', 'Pending Owner Confirmation', 'pending', 'approved'] },
     }).sort({ createdAt: -1 });
 
-    if (claim) {
+    if (claim && req.body.recoveryType !== 'owner_found') {
+      // CASE 1 — ANOTHER STUDENT FINDS THE ITEM
+      // After successful owner OTP:
+      // - item.status = "Resolved"
+      // - claim.status = "resolved"
+      // - item.resolvedAt = current time
+      // - claim.resolvedAt = current time
+      // - item.foundBy = final finder
+      // - record ownerConfirmedAt
+      // - record ownerConfirmedBy
+      // - no admin approval required
+      // Then:
+      // - send resolution email to owner
+      // - send resolution email to finder
       claim.status = 'resolved';
       claim.resolvedAt = now;
-      await claim.save();
+      claim.ownerConfirmedAt = now;
+      claim.ownerConfirmedBy = req.user._id;
 
       if (claim.finder) {
         item.foundBy = claim.finder;
         item.claimedBy = claim.finder;
       }
+
+      item.status = 'Resolved';
+      item.recoveryType = 'finder_found';
+      item.resolvedAt = now;
+      item.ownerConfirmedAt = now;
+      item.ownerConfirmedBy = req.user._id;
+
+      await claim.save();
+      await item.save();
+
+      // Retrieve finder information for email dispatch
+      const finderUser = claim.finder ? await User.findById(claim.finder) : null;
+      const finalFinderName = claim.fullName || (finderUser ? finderUser.name : 'Student');
+      const finalFinderEmail = claim.email || (finderUser ? finderUser.email : null);
+
+      // Send resolution email to owner
+      try {
+        await emailUtils.sendOwnerResolutionEmail({
+          ownerEmail: ownerUser.email,
+          ownerName: ownerUser.name,
+          itemName: item.title,
+          finderName: finalFinderName,
+          resolutionDate: now,
+        });
+        claim.ownerResolutionEmailSentAt = now;
+      } catch (ownerEmailErr) {
+        console.error(`[SMTP] Error sending owner resolution email: ${ownerEmailErr.message}`);
+      }
+
+      // Send resolution email to finder
+      if (finalFinderEmail) {
+        try {
+          await emailUtils.sendFinderResolutionEmail({
+            finderEmail: finalFinderEmail,
+            finderName: finalFinderName,
+            itemName: item.title,
+            resolutionDate: now,
+          });
+          claim.finderResolutionEmailSentAt = now;
+        } catch (finderEmailErr) {
+          console.error(`[SMTP] Error sending finder resolution email: ${finderEmailErr.message}`);
+        }
+      }
+
+      await claim.save();
+
+      const populated = await Item.findById(item._id).populate([
+        { path: 'reportedBy', select: 'name email department phone studentId' },
+        { path: 'foundBy', select: 'name email department phone studentId' },
+        { path: 'claimedBy', select: 'name email department phone studentId' },
+        { path: 'recoveredBy', select: 'name email department phone studentId' },
+        { path: 'ownerConfirmedBy', select: 'name email department phone studentId' },
+      ]);
+
+      const result = populated && populated.toObject ? populated.toObject() : { ...populated };
+      result.success = true;
+      result.status = 'Resolved';
+      result.message = 'Item marked as Resolved! Resolution emails have been sent to you and the finder.';
+      result.item = populated;
+      result.claim = claim;
+
+      return res.json(result);
     }
 
+    // OWNER SELF-RECOVERY: DIRECT RESOLUTION + EMAIL
+    // 1. Directly resolve the item.
+    // 2. Do NOT require admin approval.
+    // 3. Do NOT create a finder claim.
+    // 4. Set:
+    //    - item.status = "Resolved"
+    //    - item.recoveryType = "owner_found"
+    //    - item.recoveredBy = authenticated owner
+    //    - item.ownerConfirmedAt = current time
+    //    - item.ownerConfirmedBy = authenticated owner
+    //    - item.resolvedAt = current time
     item.status = 'Resolved';
+    item.recoveryType = 'owner_found';
+    item.recoveredBy = req.user._id;
+    item.ownerConfirmedAt = now;
+    item.ownerConfirmedBy = req.user._id;
     item.resolvedAt = now;
     await item.save();
+
+    // 5. Immediately send an email to the authenticated owner's verified @apsit.edu.in email.
+    try {
+      await emailUtils.sendOwnerSelfRecoveryEmail({
+        ownerEmail: ownerUser.email,
+        ownerName: ownerUser.name,
+        itemName: item.title,
+        recoveryDate: now,
+      });
+    } catch (emailErr) {
+      console.error(`[SMTP] Error sending owner self-recovery email: ${emailErr.message}`);
+    }
+
+    const populated = await Item.findById(item._id).populate([
+      { path: 'reportedBy', select: 'name email department phone studentId' },
+      { path: 'foundBy', select: 'name email department phone studentId' },
+      { path: 'claimedBy', select: 'name email department phone studentId' },
+      { path: 'recoveredBy', select: 'name email department phone studentId' },
+      { path: 'ownerConfirmedBy', select: 'name email department phone studentId' },
+    ]);
+
+    const result = populated && populated.toObject ? populated.toObject() : { ...populated };
+    result.success = true;
+    result.status = 'Resolved';
+    result.recoveryType = 'owner_found';
+    result.message = 'Item marked as Resolved! A confirmation email has been sent to your college email.';
+    result.item = populated;
+
+    return res.json(result);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// @route   PUT /api/items/:id/reject-finder
+// @desc    Lost item owner marks finder report as rejected ("This Is Not My Item")
+// @access  Private (Owner or Admin)
+router.put('/:id/reject-finder', protect, async (req, res) => {
+  try {
+    const item = await Item.findById(req.params.id);
+    if (!item) {
+      return res.status(404).json({ message: 'Item not found' });
+    }
+
+    // Only owner or admin can reject finder report
+    const ownerId = item.reportedBy?._id ? item.reportedBy._id.toString() : (item.reportedBy ? item.reportedBy.toString() : '');
+    if (ownerId !== req.user._id.toString() && req.user.role !== 'admin') {
+      return res.status(403).json({ message: 'Only the item owner or an admin can reject this finder report.' });
+    }
+
+    if (item.status === 'Resolved' || item.status === 'Claimed') {
+      return res.status(400).json({ message: 'Cannot reject a report on an item that is already resolved or claimed.' });
+    }
+
+    // Find the latest active claim for this item
+    const claim = await Claim.findOne({
+      item: item._id,
+      status: { $in: ['Contacted', 'Pending Owner Confirmation', 'pending', 'approved'] },
+    }).sort({ createdAt: -1 });
+
+    if (!claim) {
+      return res.status(400).json({ message: 'No active finder report found to reject.' });
+    }
+
+    const now = new Date();
+    claim.status = 'rejected';
+    claim.rejectedAt = now;
+    claim.rejectedBy = req.user._id;
+    await claim.save();
+
+    // Clear foundBy, preserve active item status (Active/Pending lost state)
+    item.foundBy = null;
+    await item.save();
+
+    // Optionally notify finder via email
+    if (claim.email) {
+      try {
+        await emailUtils.sendFinderRejectionNotificationEmail({
+          finderEmail: claim.email,
+          finderName: claim.fullName || (claim.finder ? claim.finder.name : 'Student'),
+          itemName: item.title,
+        });
+      } catch (emailErr) {
+        console.error('Finder rejection notification failed:', emailErr.message);
+      }
+    }
 
     const populated = await Item.findById(item._id)
       .populate([
@@ -459,9 +801,15 @@ router.put('/:id/recover', protect, async (req, res) => {
         { path: 'claimedBy', select: 'name email department phone studentId' },
       ]);
 
+    const claims = await Claim.find({ item: item._id })
+      .populate('finder', 'name email phone studentId department')
+      .populate('owner', 'name email phone studentId department')
+      .sort({ createdAt: -1 });
+
     const result = populated && populated.toObject ? populated.toObject() : (populated ? { ...populated } : { ...item });
+    result.claims = claims;
     result.success = true;
-    result.message = 'Item marked as recovered and resolved successfully!';
+    result.message = 'Finder report has been rejected. The item is now open for new finder reports.';
     result.item = populated;
 
     res.json(result);

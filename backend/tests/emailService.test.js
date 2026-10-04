@@ -101,4 +101,105 @@ describe('Email Notification Service (Mocked Transporter)', () => {
     assert.ok(lastMail.subject.includes('Approved'));
     assert.ok(lastMail.text.includes('Blue Umbrella'));
   });
+
+  it('owner email contains item + finder + resolution information', async () => {
+    const res = await emailModule.sendOwnerResolutionEmail({
+      ownerEmail: '24107010@apsit.edu.in',
+      ownerName: 'Rahul Sharma',
+      itemName: 'Wireless Earbuds',
+      finderName: 'Priya Patel',
+      resolutionDate: new Date('2026-10-04T10:00:00Z'),
+    });
+    assert.strictEqual(res.success, true);
+
+    const lastMail = sentEmails[sentEmails.length - 1];
+    assert.strictEqual(lastMail.to, '24107010@apsit.edu.in');
+    assert.strictEqual(lastMail.subject, 'Lost Item Recovery Verified - Wireless Earbuds');
+    assert.ok(lastMail.text.includes('Rahul Sharma'));
+    assert.ok(lastMail.text.includes('Wireless Earbuds'));
+    assert.ok(lastMail.text.includes('Priya Patel'));
+    assert.ok(lastMail.text.includes('Claim Status: Resolved'));
+    assert.ok(lastMail.text.includes('Resolution Date:'));
+    assert.ok(lastMail.text.includes('verified'));
+    assert.ok(lastMail.text.includes('administrator'));
+  });
+
+  it('finder email contains item + resolution information', async () => {
+    const res = await emailModule.sendFinderResolutionEmail({
+      finderEmail: '24107011@apsit.edu.in',
+      finderName: 'Priya Patel',
+      itemName: 'Wireless Earbuds',
+      resolutionDate: new Date('2026-10-04T10:00:00Z'),
+    });
+    assert.strictEqual(res.success, true);
+
+    const lastMail = sentEmails[sentEmails.length - 1];
+    assert.strictEqual(lastMail.to, '24107011@apsit.edu.in');
+    assert.strictEqual(lastMail.subject, 'Found Item Report Verified - Wireless Earbuds');
+    assert.ok(lastMail.text.includes('Priya Patel'));
+    assert.ok(lastMail.text.includes('Wireless Earbuds'));
+    assert.ok(lastMail.text.includes('Claim Status: Resolved'));
+    assert.ok(lastMail.text.includes('Resolution Date:'));
+    assert.ok(lastMail.text.includes('verified'));
+    assert.ok(lastMail.text.includes('administrator'));
+  });
+
+  it('owner self-recovery sends owner email with item name and resolved status', async () => {
+    const res = await emailModule.sendOwnerSelfRecoveryEmail({
+      ownerEmail: '24107001@apsit.edu.in',
+      ownerName: 'Rahul Sharma',
+      itemName: 'Casio Scientific Calculator',
+      recoveryDate: new Date('2026-10-04T12:00:00Z'),
+    });
+    assert.strictEqual(res.success, true);
+
+    const lastMail = sentEmails[sentEmails.length - 1];
+    assert.strictEqual(lastMail.to, '24107001@apsit.edu.in');
+    assert.strictEqual(lastMail.subject, 'Your Lost Item Has Been Recovered - Casio Scientific Calculator');
+    assert.ok(lastMail.text.includes('Rahul Sharma'));
+    assert.ok(lastMail.text.includes('Casio Scientific Calculator'));
+    assert.ok(lastMail.text.includes('Recovery Type: Owner Found Item'));
+    assert.ok(lastMail.text.includes('Status: Resolved'));
+    assert.ok(lastMail.text.includes('Recovery Date:'));
+    assert.ok(lastMail.text.includes('finding your own lost item'));
+    assert.ok(lastMail.text.includes('directly marked as Resolved'));
+  });
+
+  it('sendItemFoundNotificationEmail should format owner notification with proof image attachment, CID, and fallback link', async () => {
+    const proofUrl = 'https://res.cloudinary.com/apsit/image/upload/v12345/calculator_proof.jpg';
+    const res = await emailModule.sendItemFoundNotificationEmail({
+      ownerEmail: '24107001@apsit.edu.in',
+      ownerName: 'Rahul Sharma',
+      itemName: 'Casio Scientific Calculator',
+      finderName: 'Priya Patel',
+      finderEmail: '24107002@apsit.edu.in',
+      finderPhone: '9123456780',
+      finderMessage: 'I found your calculator in Room 402 on table 3.',
+      proofImage: proofUrl,
+    });
+    assert.strictEqual(res.success, true);
+
+    const lastMail = sentEmails[sentEmails.length - 1];
+    assert.strictEqual(lastMail.to, '24107001@apsit.edu.in');
+    assert.strictEqual(lastMail.subject, 'Someone Found Your Lost Item - Casio Scientific Calculator');
+    assert.ok(lastMail.text.includes('Rahul Sharma'));
+    assert.ok(lastMail.text.includes('Casio Scientific Calculator'));
+    assert.ok(lastMail.text.includes('Priya Patel'));
+    assert.ok(lastMail.text.includes('I found your calculator in Room 402 on table 3.'));
+    assert.ok(lastMail.text.includes('24107002@apsit.edu.in'));
+    assert.ok(lastMail.text.includes('9123456780'));
+    assert.ok(lastMail.text.includes(proofUrl));
+
+    // Inline image and attachment verification
+    assert.ok(Array.isArray(lastMail.attachments));
+    assert.strictEqual(lastMail.attachments.length, 1);
+    assert.strictEqual(lastMail.attachments[0].cid, 'finderProofPhoto');
+    assert.strictEqual(lastMail.attachments[0].filename, 'finder-proof-photo.jpg');
+    assert.strictEqual(lastMail.attachments[0].path, proofUrl);
+
+    // HTML inline image and fallback link verification
+    assert.ok(lastMail.html.includes('src="cid:finderProofPhoto"'));
+    assert.ok(lastMail.html.includes(`href="${proofUrl}"`));
+    assert.ok(lastMail.html.includes('View Proof Photo'));
+  });
 });

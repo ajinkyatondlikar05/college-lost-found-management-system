@@ -54,7 +54,7 @@ const claimSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ['pending', 'Contacted', 'Pending Owner Confirmation', 'approved', 'rejected', 'resolved'],
+      enum: ['pending', 'Contacted', 'Pending Owner Confirmation', 'Pending Admin Verification', 'Admin Rejected', 'approved', 'rejected', 'resolved'],
       default: 'pending',
     },
     submittedAt: {
@@ -65,9 +65,57 @@ const claimSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+    rejectedAt: {
+      type: Date,
+      default: null,
+    },
+    rejectedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: null,
+    },
+    ownerConfirmedAt: {
+      type: Date,
+      default: null,
+    },
+    ownerConfirmedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: null,
+    },
+    adminVerifier: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: null,
+    },
+    adminVerifiedAt: {
+      type: Date,
+      default: null,
+    },
+    adminRejectedAt: {
+      type: Date,
+      default: null,
+    },
+    adminRejectionDate: {
+      type: Date,
+      default: null,
+    },
+    adminRejectionReason: {
+      type: String,
+      default: '',
+      trim: true,
+    },
     processedBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
+      default: null,
+    },
+    ownerResolutionEmailSentAt: {
+      type: Date,
+      default: null,
+    },
+    finderResolutionEmailSentAt: {
+      type: Date,
       default: null,
     },
   },

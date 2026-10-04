@@ -71,15 +71,33 @@ router.get('/analytics', protect, adminOnly, async (req, res) => {
       status_data[key] = (status_data[key] || 0) + s.count;
     });
 
-    // 5. Summary metrics
-    // Pending Lost Items: type == 'lost' and (status == 'Pending' or 'active')
+    // 5. Summary metrics matching section workflow rules:
+    // LOST ITEMS: active unresolved LOST reports without active finder
     const total_lost = await Item.countDocuments({
       type: 'lost',
-      status: { $regex: /^(pending|active)$/i },
+      status: { $nin: ['Resolved', 'Claimed', 'resolved', 'claimed'] },
+      foundBy: null,
     });
-    const total_found = await Item.countDocuments({ type: 'found' });
+
+    // FOUND ITEMS: normal FOUND reports (unresolved) + LOST items with active finder (unresolved)
+    const total_found = await Item.countDocuments({
+      $or: [
+        { type: 'found', status: { $nin: ['Resolved', 'Claimed', 'resolved', 'claimed'] } },
+        { type: 'lost', status: { $nin: ['Resolved', 'Claimed', 'resolved', 'claimed'] }, foundBy: { $ne: null } },
+      ],
+    });
+
+    // CLAIM REQUESTS: active/incomplete claims only
+    const pending_claims = await Claim.countDocuments({
+      status: { $in: ['pending', 'Contacted', 'Pending Owner Confirmation', 'Pending Admin Verification', 'approved'] },
+    });
+
+    // CLAIMED: final resolved/complete recoveries only
+    const total_claimed = await Item.countDocuments({
+      status: { $in: ['Resolved', 'Claimed', 'resolved', 'claimed'] },
+    });
+
     const total_claims = await Claim.countDocuments();
-    const pending_claims = await Claim.countDocuments({ status: 'pending' });
     const pending_users = await User.countDocuments({ role: 'user', status: 'pending' });
 
     res.json({
@@ -88,6 +106,7 @@ router.get('/analytics', protect, adminOnly, async (req, res) => {
       total_claims,
       pending_claims,
       pending_users,
+      total_claimed,
       category_data,
       weekly_data,
       location_data,

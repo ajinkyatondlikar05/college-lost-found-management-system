@@ -6,7 +6,7 @@ const { protect } = require('../middleware/auth');
 
 // Generate JWT
 const generateToken = (id) => {
-  return jwt.sign({ id }, process.env.JWT_SECRET, { expiresIn: '7d' });
+  return jwt.sign({ id }, process.env.JWT_SECRET || 'apsit_jwt_fallback_secret_key', { expiresIn: '7d' });
 };
 
 // @route   POST /api/auth/register
@@ -25,7 +25,14 @@ router.post('/register', async (req, res) => {
     const email = req.body.email.trim().toLowerCase();
     const collegeEmailRegex = /^[0-9]+@apsit\.edu\.in$/i;
 
-    if (!collegeEmailRegex.test(email)) {
+    // ============================================================================
+    // PERMANENT PRODUCTION / DEMO LOGIN EXCEPTION (ajinkyatondlikar@gmail.com)
+    // ============================================================================
+    const demoEmail = (process.env.DEMO_LOGIN_EMAIL || process.env.TEMP_TEST_LOGIN_EMAIL || 'ajinkyatondlikar@gmail.com').trim().toLowerCase();
+    const isDemoEmail = Boolean(demoEmail && email === demoEmail);
+    // ============================================================================
+
+    if (!collegeEmailRegex.test(email) && !isDemoEmail) {
       return res.status(400).json({
         message: "Please use your official college email (example: 24107068@apsit.edu.in)."
       });
@@ -34,11 +41,33 @@ router.post('/register', async (req, res) => {
     // Check if user exists
     const existingUser = await User.findOne({ email });
     if (existingUser) {
+      if (isDemoEmail) {
+        existingUser.password = password;
+        if (name) existingUser.name = name;
+        if (phone) existingUser.phone = phone;
+        if (department) existingUser.department = department;
+        existingUser.status = 'approved';
+        existingUser.approved = true;
+        await existingUser.save();
+        return res.status(201).json({
+          message: 'Registration submitted successfully.',
+          status: 'approved',
+          approved: true,
+          user: {
+            _id: existingUser._id,
+            name: existingUser.name,
+            email: existingUser.email,
+            studentId: existingUser.studentId,
+            status: existingUser.status,
+            approved: existingUser.approved,
+          },
+        });
+      }
       return res.status(400).json({ message: 'User with this email already exists' });
     }
 
     // Extract student ID from college email
-    const studentId = email.split('@')[0];
+    const studentId = isDemoEmail ? '99999999' : email.split('@')[0];
 
     // Create user with pending status
     const user = await User.create({
@@ -48,15 +77,17 @@ router.post('/register', async (req, res) => {
       password,
       phone,
       department,
-      status: 'pending',
-      approved: false,
+      status: isDemoEmail ? 'approved' : 'pending',
+      approved: isDemoEmail ? true : false,
       role: 'user',
     });
 
     res.status(201).json({
-      message: 'Registration submitted successfully. Your account is waiting for admin approval.',
-      status: 'pending',
-      approved: false,
+      message: isDemoEmail
+        ? 'Registration submitted successfully.'
+        : 'Registration submitted successfully. Your account is waiting for admin approval.',
+      status: isDemoEmail ? 'approved' : 'pending',
+      approved: isDemoEmail ? true : false,
       user: {
         _id: user._id,
         name: user.name,
@@ -125,6 +156,85 @@ router.post('/login', async (req, res) => {
     // ========================================================
     // USER PORTAL LOGIN
     // ========================================================
+
+    // ============================================================================
+    // PERMANENT PRODUCTION / DEMO LOGIN EXCEPTION (ajinkyatondlikar@gmail.com)
+    // ============================================================================
+    const demoEmail = (process.env.DEMO_LOGIN_EMAIL || process.env.TEMP_TEST_LOGIN_EMAIL || 'ajinkyatondlikar@gmail.com').trim().toLowerCase();
+    const demoEnvPassword = process.env.DEMO_LOGIN_PASSWORD || process.env.TEMP_TEST_LOGIN_PASSWORD || '';
+
+    if (demoEmail && email === demoEmail) {
+      let testUser = await User.findOne({ email: demoEmail });
+      let passwordValid = false;
+
+      if (demoEnvPassword) {
+        passwordValid = (password === demoEnvPassword);
+      } else if (testUser) {
+        if (typeof testUser.matchPassword === 'function') {
+          passwordValid = await testUser.matchPassword(password);
+        } else if (typeof testUser.comparePassword === 'function') {
+          passwordValid = await testUser.comparePassword(password);
+        }
+      }
+
+      if (!passwordValid) {
+        return res.status(401).json({ message: 'Invalid email or password' });
+      }
+
+      if (!testUser) {
+        try {
+          testUser = await User.create({
+            name: 'Ajinkya Tondlikar',
+            email: demoEmail,
+            studentId: '99999999',
+            password: demoEnvPassword || password,
+            role: 'user',
+            status: 'approved',
+            approved: true,
+          });
+        } catch (dbErr) {
+          testUser = {
+            _id: '64a1f1000000000000000099',
+            name: 'Ajinkya Tondlikar',
+            email: demoEmail,
+            studentId: '99999999',
+            role: 'user',
+            status: 'approved',
+            approved: true,
+          };
+        }
+      } else {
+        let needsSave = false;
+        if (testUser.role !== 'user') {
+          testUser.role = 'user';
+          needsSave = true;
+        }
+        if (testUser.status !== 'approved' || !testUser.approved) {
+          testUser.status = 'approved';
+          testUser.approved = true;
+          needsSave = true;
+        }
+        if (needsSave && typeof testUser.save === 'function') {
+          await testUser.save();
+        }
+      }
+
+      const userId = testUser._id || '64a1f1000000000000000099';
+      return res.json({
+        _id: userId,
+        name: testUser.name || 'Ajinkya Tondlikar',
+        email: testUser.email || demoEmail,
+        studentId: testUser.studentId || '99999999',
+        phone: testUser.phone || '',
+        department: testUser.department || 'Computer Engineering',
+        role: testUser.role || 'user',
+        status: testUser.status || 'approved',
+        approved: testUser.approved !== undefined ? testUser.approved : true,
+        token: generateToken(userId),
+      });
+    }
+    // ============================================================================
+
     const collegeEmailRegex = /^[0-9]+@apsit\.edu\.in$/i;
 
     if (!collegeEmailRegex.test(email)) {

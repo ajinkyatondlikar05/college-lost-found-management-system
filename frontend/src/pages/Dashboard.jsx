@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { getAllItems, createItem, createClaim, recoverItem, sendReportOtp, verifyReportOtp, getImageUrl } from '../api';
+import { getAllItems, createItem, createClaim, recoverItem, rejectFinderClaim, sendReportOtp, verifyReportOtp, getImageUrl } from '../api';
 import toast from 'react-hot-toast';
 import {
   FiSearch,
@@ -25,6 +25,7 @@ import {
 } from 'react-icons/fi';
 import { MdFindInPage } from 'react-icons/md';
 import './Dashboard.css';
+import OwnerRecoveryOtpModal from '../components/OwnerRecoveryOtpModal';
 
 const CATEGORIES = [
   'All Categories',
@@ -39,6 +40,7 @@ const CATEGORIES = [
   'Clothing',
   'Other',
 ];
+
 
 export default function Dashboard() {
   const { user, logoutUser } = useAuth();
@@ -68,6 +70,9 @@ export default function Dashboard() {
 
   // Modals state
   const [selectedItem, setSelectedItem] = useState(null); // Item details modal
+  const [isRejectModalOpen, setIsRejectModalOpen] = useState(false);
+  const [rejectTargetItemId, setRejectTargetItemId] = useState(null);
+  const [isRejecting, setIsRejecting] = useState(false);
   const [isReportModalOpen, setIsReportModalOpen] = useState(false); // Report Lost Item modal
   const [isClaimModalOpen, setIsClaimModalOpen] = useState(false); // Report Found Item / Claim modal
   const [claimTargetItem, setClaimTargetItem] = useState(null);
@@ -415,10 +420,21 @@ export default function Dashboard() {
       errs.fullName = 'Full Name must be at least 2 characters long';
     }
 
+    // ============================================================================
+    // PERMANENT PRODUCTION / DEMO FINDER EXCEPTION (ajinkyatondlikar@gmail.com)
+    // ============================================================================
+    const DEMO_FINDER_EMAIL = (import.meta.env.VITE_DEMO_LOGIN_EMAIL || import.meta.env.VITE_TEMP_TEST_LOGIN_EMAIL || 'ajinkyatondlikar@gmail.com').trim().toLowerCase();
+    const isAllowedFinderEmail = (e) => {
+      if (!e) return false;
+      const normalized = e.trim().toLowerCase();
+      return normalized.endsWith('@apsit.edu.in') || normalized === DEMO_FINDER_EMAIL;
+    };
+    // ============================================================================
+
     const trimmedEmail = (claimForm.email || '').trim().toLowerCase();
     if (!trimmedEmail) {
       errs.email = 'College Email Address is required';
-    } else if (!trimmedEmail.endsWith('@apsit.edu.in')) {
+    } else if (!isAllowedFinderEmail(trimmedEmail)) {
       errs.email = 'Email must end with @apsit.edu.in';
     }
 
@@ -552,15 +568,27 @@ export default function Dashboard() {
     }
   };
 
-  const handleRecoverItem = async (itemId) => {
-    if (!window.confirm('Confirm that you have recovered your lost item? This will mark it as resolved.')) return;
+  const [recoveryTargetItemId, setRecoveryTargetItemId] = useState(null);
+  const [isRecoveryModalOpen, setIsRecoveryModalOpen] = useState(false);
+
+  const handleRecoverItem = (itemId) => {
+    setRecoveryTargetItemId(itemId);
+    setIsRecoveryModalOpen(true);
+  };
+
+  const handleRejectFinderClaim = async () => {
+    if (!rejectTargetItemId) return;
     try {
-      await recoverItem(itemId);
-      toast.success('Item marked as recovered and resolved!');
+      setIsRejecting(true);
+      await rejectFinderClaim(rejectTargetItemId);
+      toast.success('Finder report has been rejected. The item is now open for new finder reports.');
+      setIsRejectModalOpen(false);
       setSelectedItem(null);
       fetchItems();
     } catch (err) {
-      toast.error(err.response?.data?.message || 'Failed to update item status');
+      toast.error(err.response?.data?.message || 'Failed to reject finder report');
+    } finally {
+      setIsRejecting(false);
     }
   };
 
@@ -1180,6 +1208,7 @@ export default function Dashboard() {
                   const activeClaim = selectedItem.claims?.find(
                     (c) => ['Contacted', 'pending', 'Pending Owner Confirmation', 'approved'].includes(c.status)
                   );
+
                   const hasActiveFinder = Boolean(selectedItem.foundBy || activeClaim);
                   const finderName = activeClaim?.fullName || selectedItem.foundBy?.name || activeClaim?.finder?.name || 'A Student';
                   const foundDate = activeClaim?.createdAt || selectedItem.updatedAt || selectedItem.createdAt;
@@ -1267,13 +1296,27 @@ export default function Dashboard() {
                           </span>
                         ) : isOwner ? (
                           isLost ? (
-                            <button
-                              className="ud-btn-action-primary"
-                              style={{ background: '#10b981', borderColor: '#10b981' }}
-                              onClick={() => handleRecoverItem(selectedItem._id)}
-                            >
-                              I Got My Item Back
-                            </button>
+                            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'center', alignItems: 'center' }}>
+                              <button
+                                className="ud-btn-action-primary"
+                                style={{ background: '#10b981', borderColor: '#10b981' }}
+                                onClick={() => handleRecoverItem(selectedItem._id)}
+                              >
+                                I Got My Item Back
+                              </button>
+                              {hasActiveFinder && (
+                                <button
+                                  className="btn btn-danger"
+                                  style={{ padding: '8px 16px', borderRadius: '6px', fontSize: '13px' }}
+                                  onClick={() => {
+                                    setRejectTargetItemId(selectedItem._id);
+                                    setIsRejectModalOpen(true);
+                                  }}
+                                >
+                                  This Is Not My Item
+                                </button>
+                              )}
+                            </div>
                           ) : null
                         ) : user ? (
                           isLost ? (
@@ -1898,6 +1941,77 @@ export default function Dashboard() {
           </div>
         </div>
       )}
+
+      {/* Confirmation Dialog: "This Is Not My Item" (Requirement 2) */}
+      {isRejectModalOpen && (
+        <div className="ud-modal-backdrop" onClick={() => !isRejecting && setIsRejectModalOpen(false)}>
+          <div
+            className="ud-modal-card animate-scaleUp"
+            style={{ maxWidth: '440px', textAlign: 'center', padding: '24px 20px' }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div
+              style={{
+                width: '56px',
+                height: '56px',
+                borderRadius: '50%',
+                background: '#fef2f2',
+                color: '#ef4444',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                margin: '0 auto 16px',
+                fontSize: '28px',
+              }}
+            >
+              <FiX />
+            </div>
+
+            <h3 style={{ fontSize: '1.25rem', fontWeight: 700, color: '#0f172a', marginBottom: '8px' }}>
+              Are you sure this is not your item?
+            </h3>
+            <p style={{ fontSize: '0.9rem', color: '#64748b', marginBottom: '24px', lineHeight: 1.5 }}>
+              Rejecting this report will clear the current finder and make your lost item available for new reports by other students.
+            </p>
+
+            <div style={{ display: 'flex', gap: '12px', justifyContent: 'center', flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                className="ud-btn-cancel"
+                style={{ minWidth: '110px' }}
+                onClick={() => setIsRejectModalOpen(false)}
+                disabled={isRejecting}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn btn-danger"
+                style={{ minWidth: '180px', padding: '10px 18px', borderRadius: '8px', fontWeight: 600 }}
+                onClick={handleRejectFinderClaim}
+                disabled={isRejecting}
+              >
+                {isRejecting ? 'Rejecting...' : 'Yes, This Is Not My Item'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Owner Recovery OTP Verification Modal */}
+      <OwnerRecoveryOtpModal
+        isOpen={isRecoveryModalOpen}
+        onClose={() => {
+          setIsRecoveryModalOpen(false);
+          setRecoveryTargetItemId(null);
+        }}
+        itemId={recoveryTargetItemId}
+        itemTitle={selectedItem?.title}
+        onSuccess={() => {
+          setSelectedItem(null);
+          fetchItems();
+        }}
+      />
     </div>
   );
 }

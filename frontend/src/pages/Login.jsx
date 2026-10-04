@@ -24,8 +24,23 @@ export default function Login() {
     const normalizedEmail = form.email.trim().toLowerCase();
     const collegeEmailRegex = /^[0-9]+@apsit\.edu\.in$/i;
 
+    // ============================================================================
+    // PERMANENT PRODUCTION / DEMO LOGIN EXCEPTION (ajinkyatondlikar@gmail.com)
+    // ============================================================================
+    const demoEmail = (import.meta.env.VITE_DEMO_LOGIN_EMAIL || import.meta.env.VITE_TEMP_TEST_LOGIN_EMAIL || 'ajinkyatondlikar@gmail.com').trim().toLowerCase();
+    const isAllowedLoginEmail = (email) => {
+      if (!email) return false;
+      const normalized = email.trim().toLowerCase();
+      return (
+        collegeEmailRegex.test(normalized) ||
+        normalized.startsWith('admin') ||
+        (demoEmail && normalized === demoEmail)
+      );
+    };
+    // ============================================================================
+
     // Enforce student email for student logins while allowing admin emails
-    if (!collegeEmailRegex.test(normalizedEmail) && !normalizedEmail.startsWith('admin')) {
+    if (!isAllowedLoginEmail(normalizedEmail)) {
       setError('Please use your official college email (example: 24107068@apsit.edu.in).');
       return;
     }

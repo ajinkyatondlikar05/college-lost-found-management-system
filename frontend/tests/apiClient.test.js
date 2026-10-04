@@ -10,6 +10,7 @@ import API, {
   updateItem,
   deleteItem,
   recoverItem,
+  rejectFinderClaim,
   getMyReports,
   sendReportOtp,
   verifyReportOtp,
@@ -73,6 +74,7 @@ describe('Frontend API Client Configuration & Endpoints', () => {
     assert.strictEqual(typeof updateItem, 'function');
     assert.strictEqual(typeof deleteItem, 'function');
     assert.strictEqual(typeof recoverItem, 'function');
+    assert.strictEqual(typeof rejectFinderClaim, 'function');
     assert.strictEqual(typeof getMyReports, 'function');
     assert.strictEqual(typeof sendReportOtp, 'function');
     assert.strictEqual(typeof verifyReportOtp, 'function');
