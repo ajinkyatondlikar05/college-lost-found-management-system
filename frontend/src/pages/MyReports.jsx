@@ -25,9 +25,11 @@ import {
   FiArrowRight,
   FiInbox,
   FiPlusCircle,
+  FiCheck,
 } from 'react-icons/fi';
 import './MyReports.css';
 import OwnerRecoveryOtpModal from '../components/OwnerRecoveryOtpModal';
+import { getItemPrimaryStatus, buildReportTimeline } from '../utils/reportCardUtils';
 
 const categoryIcons = {
   Electronics: '💻',
@@ -62,6 +64,7 @@ export default function MyReports() {
   const [deleteConfirmItem, setDeleteConfirmItem] = useState(null);
   const [printMode, setPrintMode] = useState(null); // 'single' | 'history' | null
   const [itemToPrint, setItemToPrint] = useState(null);
+  const [previewImageModal, setPreviewImageModal] = useState(null);
 
   const fetchReports = async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true);
@@ -526,39 +529,41 @@ export default function MyReports() {
               const categoryIcon = categoryIcons[item.category] || '📦';
               const latestClaim = item.latestClaim || (item.claims && item.claims[0]) || null;
               const claimStatus = item.claimStatus || (latestClaim ? latestClaim.status : null);
-
-              // Timeline progression calculation
-              let timelineStep = 1;
-              if (rawStatus === 'ACTIVE' || !isLost) timelineStep = 2;
-              if (item.foundBy || claimStatus || (item.claims && item.claims.length > 0)) timelineStep = 3;
-              if (item.ownerConfirmedAt || rawStatus === 'CLAIMED' || rawStatus === 'RESOLVED') timelineStep = 4;
-              if (rawStatus === 'CLAIMED' || rawStatus === 'RESOLVED') timelineStep = 5;
+              const primaryStatus = getItemPrimaryStatus(item);
+              const isRecovered = primaryStatus.state === 'recovered';
+              const timelineSteps = buildReportTimeline(item);
 
               return (
                 <div key={item._id} className="history-report-card">
-                  {/* Top info line */}
+                  {/* Clean Card Top Row: [Current Status] on left, [Category] on right (No Report ID, No Contradictory Badges) */}
                   <div className="card-top-row">
-                    <div className="report-id-pill">
-                      Report ID: <span>{item._id}</span>
+                    <div className="card-top-status">
+                      <span className={`primary-status-badge ${primaryStatus.badgeClass}`}>
+                        {primaryStatus.label}
+                      </span>
                     </div>
-                    <div className="report-badges-group">
-                      <span className={`type-badge ${isLost ? 'badge-lost' : 'badge-found'}`}>
-                        {isLost ? '🔴 LOST' : '🟢 FOUND'}
+                    <div className="card-top-category">
+                      <span className="item-category-tag">
+                        {categoryIcon} {item.category}
                       </span>
-                      <span className={`status-badge status-${rawStatus.toLowerCase()}`}>
-                        {rawStatus}
-                      </span>
-                      {claimStatus && (
-                        <span className={`claim-badge claim-${claimStatus.toLowerCase()}`}>
-                          Claim: {claimStatus.toUpperCase()}
-                        </span>
-                      )}
                     </div>
                   </div>
 
                   <div className="card-main-content">
-                    {/* Item Image */}
-                    <div className="item-thumbnail-wrap">
+                    {/* Item Image: Substantially larger thumbnail with aspect-ratio, contain fit, click to preview full image */}
+                    <div
+                      className="item-thumbnail-wrap"
+                      onClick={() => {
+                        if (item.image) {
+                          setPreviewImageModal({
+                            src: getImageUrl(item.image),
+                            alt: item.title,
+                          });
+                        }
+                      }}
+                      style={{ cursor: item.image ? 'pointer' : 'default' }}
+                      title={item.image ? 'Click to preview full image' : item.title}
+                    >
                       {item.image ? (
                         <img
                           src={getImageUrl(item.image)}
@@ -577,6 +582,7 @@ export default function MyReports() {
                         style={{ display: item.image ? 'none' : 'flex' }}
                       >
                         <span className="placeholder-emoji">{categoryIcon}</span>
+                        <span className="placeholder-text">No Photo</span>
                       </div>
                     </div>
 
@@ -584,9 +590,6 @@ export default function MyReports() {
                     <div className="item-details-body">
                       <div className="item-title-row">
                         <h3 className="item-title">{item.title}</h3>
-                        <span className="item-category-tag">
-                          {categoryIcon} {item.category}
-                        </span>
                       </div>
 
                       <p className="item-description-text">{item.description}</p>
@@ -612,7 +615,7 @@ export default function MyReports() {
                           <span className="meta-value">{formatDate(item.createdAt)}</span>
                         </div>
 
-                        {claimStatus && (
+                        {!isRecovered && claimStatus && (
                           <div className="meta-item">
                             <FiShield className="meta-icon" />
                             <span className="meta-label">Claim Status:</span>
@@ -623,94 +626,36 @@ export default function MyReports() {
                         )}
                       </div>
 
-                      {/* Visual Timeline Section */}
+                      {/* Visual Timeline Section mapped from actual data & timestamps */}
                       <div className="timeline-container">
                         <div className="timeline-header-label">Activity Timeline</div>
-                        <div className="timeline-stepper">
-                          {isLost ? (
-                            item.recoveryType === 'owner_found' ? (
-                              <>
-                                <div className="step-node completed">
-                                  <div className="step-circle">1</div>
-                                  <span className="step-title">Reported Lost</span>
+                        <div className="report-card-stepper">
+                          {timelineSteps.map((step, idx) => (
+                            <React.Fragment key={step.key || idx}>
+                              <div className={`report-step-node ${step.status === 'completed' ? 'completed' : 'pending'}`}>
+                                <div className="report-step-circle">
+                                  {step.status === 'completed' ? (
+                                    <FiCheck className="report-step-check-icon" />
+                                  ) : (
+                                    idx + 1
+                                  )}
                                 </div>
-                                <div className="step-line completed" />
-                                <div className="step-node completed">
-                                  <div className="step-circle">2</div>
-                                  <span className="step-title">Active</span>
+                                <div className="report-step-text-wrap">
+                                  <span className="report-step-title">{step.title}</span>
+                                  {step.date && <span className="report-step-date">{step.date}</span>}
                                 </div>
-                                <div className="step-line completed" />
-                                <div className="step-node completed">
-                                  <div className="step-circle">3</div>
-                                  <span className="step-title">Owner Found Item</span>
-                                </div>
-                                <div className="step-line completed" />
-                                <div className="step-node completed">
-                                  <div className="step-circle">4</div>
-                                  <span className="step-title">OTP Verified</span>
-                                </div>
-                                <div className="step-line completed" />
-                                <div className="step-node completed">
-                                  <div className="step-circle">5</div>
-                                  <span className="step-title">Resolved</span>
-                                </div>
-                              </>
-                            ) : (
-                              <>
-                                <div className={`step-node ${timelineStep >= 1 ? 'completed' : ''}`}>
-                                  <div className="step-circle">1</div>
-                                  <span className="step-title">Reported Lost</span>
-                                </div>
-                                <div className={`step-line ${timelineStep >= 2 ? 'completed' : ''}`} />
-                                <div className={`step-node ${timelineStep >= 2 ? 'completed' : ''}`}>
-                                  <div className="step-circle">2</div>
-                                  <span className="step-title">Active</span>
-                                </div>
-                                <div className={`step-line ${timelineStep >= 3 ? 'completed' : ''}`} />
-                                <div className={`step-node ${timelineStep >= 3 ? 'completed' : ''}`}>
-                                  <div className="step-circle">3</div>
-                                  <span className="step-title">Finder Reported</span>
-                                </div>
-                                <div className={`step-line ${timelineStep >= 4 ? 'completed' : ''}`} />
-                                <div className={`step-node ${timelineStep >= 4 ? 'completed' : ''}`}>
-                                  <div className="step-circle">4</div>
-                                  <span className="step-title">Owner Confirmed Recovery</span>
-                                </div>
-                                <div className={`step-line ${timelineStep >= 5 ? 'completed' : ''}`} />
-                                <div className={`step-node ${timelineStep >= 5 ? 'completed' : ''}`}>
-                                  <div className="step-circle">5</div>
-                                  <span className="step-title">Resolved</span>
-                                </div>
-                              </>
-                            )
-                          ) : (
-                            <>
-                              <div className={`step-node ${timelineStep >= 1 ? 'completed' : ''}`}>
-                                <div className="step-circle">1</div>
-                                <span className="step-title">Found Item</span>
                               </div>
-                              <div className={`step-line ${timelineStep >= 2 ? 'completed' : ''}`} />
-                              <div className={`step-node ${timelineStep >= 2 ? 'completed' : ''}`}>
-                                <div className="step-circle">2</div>
-                                <span className="step-title">Active</span>
-                              </div>
-                              <div className={`step-line ${timelineStep >= 3 ? 'completed' : ''}`} />
-                              <div className={`step-node ${timelineStep >= 3 ? 'completed' : ''}`}>
-                                <div className="step-circle">3</div>
-                                <span className="step-title">Owner Claim Received</span>
-                              </div>
-                              <div className={`step-line ${timelineStep >= 4 ? 'completed' : ''}`} />
-                              <div className={`step-node ${timelineStep >= 4 ? 'completed' : ''}`}>
-                                <div className="step-circle">4</div>
-                                <span className="step-title">Claim Approved</span>
-                              </div>
-                              <div className={`step-line ${timelineStep >= 5 ? 'completed' : ''}`} />
-                              <div className={`step-node ${timelineStep >= 5 ? 'completed' : ''}`}>
-                                <div className="step-circle">5</div>
-                                <span className="step-title">Resolved</span>
-                              </div>
-                            </>
-                          )}
+                              {idx < timelineSteps.length - 1 && (
+                                <div
+                                  className={`report-step-line ${
+                                    step.status === 'completed' && timelineSteps[idx + 1].status === 'completed'
+                                      ? 'completed'
+                                      : ''
+                                  }`}
+                                />
+                              )}
+                            </React.Fragment>
+                          ))}
                         </div>
                       </div>
                     </div>
@@ -788,7 +733,9 @@ export default function MyReports() {
             <div className="modal-card modal-large" onClick={(e) => e.stopPropagation()}>
               <div className="modal-header">
                 <div>
-                  <div className="modal-sub-id">Report ID: {selectedItem._id}</div>
+                  <span className="modal-category-breadcrumb">
+                    {categoryIcons[selectedItem.category] || '📦'} {selectedItem.category}
+                  </span>
                   <h2 className="modal-title">{selectedItem.title}</h2>
                 </div>
                 <button className="modal-close-btn" onClick={() => setSelectedItem(null)}>
@@ -824,26 +771,14 @@ export default function MyReports() {
 
                     <div className="modal-status-box">
                       <div className="status-box-row">
-                        <span className="box-label">Report Type:</span>
-                        <span
-                          className={`type-badge ${
-                            selectedItem.type === 'lost' ? 'badge-lost' : 'badge-found'
-                          }`}
-                        >
-                          {selectedItem.type?.toUpperCase()}
-                        </span>
-                      </div>
-                      <div className="status-box-row">
                         <span className="box-label">Current Status:</span>
                         <span
-                          className={`status-badge status-${(
-                            selectedItem.status || 'Active'
-                          ).toLowerCase()}`}
+                          className={`primary-status-badge ${getItemPrimaryStatus(selectedItem).badgeClass}`}
                         >
-                          {(selectedItem.status || 'Active').toUpperCase()}
+                          {getItemPrimaryStatus(selectedItem).label}
                         </span>
                       </div>
-                      {selectedItem.claimStatus && (
+                      {getItemPrimaryStatus(selectedItem).state !== 'recovered' && selectedItem.claimStatus && (
                         <div className="status-box-row">
                           <span className="box-label">Claim Status:</span>
                           <span
@@ -1118,7 +1053,7 @@ export default function MyReports() {
               <h3 className="confirm-title">Delete Report?</h3>
               <p className="confirm-text">
                 Are you sure you want to delete report{' '}
-                <strong>"{deleteConfirmItem.title}"</strong> (ID: {deleteConfirmItem._id})?
+                <strong>"{deleteConfirmItem.title}"</strong>?
                 This action cannot be undone.
               </p>
               <div className="confirm-actions">
@@ -1160,6 +1095,31 @@ export default function MyReports() {
                 >
                   {isRejecting ? 'Rejecting...' : 'Yes, This Is Not My Item'}
                 </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Image Preview Modal */}
+        {previewImageModal && (
+          <div className="modal-backdrop" onClick={() => setPreviewImageModal(null)}>
+            <div className="image-preview-modal-card" onClick={(e) => e.stopPropagation()}>
+              <div className="image-preview-header">
+                <span className="image-preview-title">{previewImageModal.alt}</span>
+                <button
+                  className="modal-close-btn"
+                  onClick={() => setPreviewImageModal(null)}
+                  title="Close preview"
+                >
+                  <FiX />
+                </button>
+              </div>
+              <div className="image-preview-body">
+                <img
+                  src={previewImageModal.src}
+                  alt={previewImageModal.alt}
+                  className="image-preview-full"
+                />
               </div>
             </div>
           </div>

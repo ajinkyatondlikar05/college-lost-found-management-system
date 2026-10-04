@@ -1265,14 +1265,14 @@
   gap: 6px;
 }
 
-.timeline-stepper {
+.admin-timeline-wrap .timeline-stepper {
   display: flex;
   flex-direction: column;
   position: relative;
   padding-left: 20px;
 }
 
-.timeline-stepper::before {
+.admin-timeline-wrap .timeline-stepper::before {
   content: '';
   position: absolute;
   top: 10px;

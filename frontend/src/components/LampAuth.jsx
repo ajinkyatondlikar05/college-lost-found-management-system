@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { login as loginApi, register as registerApi } from '../api';
 import toast from 'react-hot-toast';
 import { FiMail, FiLock, FiUser, FiEye, FiEyeOff, FiArrowLeft } from 'react-icons/fi';
+import { isAllowedUserEmail } from '../utils/authValidation';
 import '../pages/LampAuth.css';
 
 // Themes configuration matching the original lamp design
@@ -280,23 +281,11 @@ export default function LampAuth({ isAdmin = false }) {
     setError('');
     setInfoMsg('');
 
-    const normalizedEmail = loginForm.email.trim().toLowerCase();
-    const collegeEmailRegex = /^[0-9]+@apsit\.edu\.in$/i;
+    const normalizedEmail = (loginForm.email || '').trim().toLowerCase();
 
-    // ============================================================================
-    // PERMANENT PRODUCTION / DEMO LOGIN EXCEPTION (ajinkyatondlikar@gmail.com)
-    // ============================================================================
-    const demoEmail = (import.meta.env.VITE_DEMO_LOGIN_EMAIL || import.meta.env.VITE_TEMP_TEST_LOGIN_EMAIL || 'ajinkyatondlikar@gmail.com').trim().toLowerCase();
-    const isAllowedUserLoginEmail = (email) => {
-      if (!email) return false;
-      const normalized = email.trim().toLowerCase();
-      return collegeEmailRegex.test(normalized) || (demoEmail && normalized === demoEmail);
-    };
-    // ============================================================================
-
-    // College email validation for User Login
+    // College email validation for User Login (explicitly allows permanent demo: ajinkyatondlikar@gmail.com)
     if (!isAdmin) {
-      if (!isAllowedUserLoginEmail(normalizedEmail)) {
+      if (!isAllowedUserEmail(normalizedEmail)) {
         triggerError('Please use your official college email (example: 24107068@apsit.edu.in).');
         return;
       }
@@ -332,22 +321,10 @@ export default function LampAuth({ isAdmin = false }) {
     setError('');
     setInfoMsg('');
 
-    const normalizedEmail = signUpForm.email.trim().toLowerCase();
-    const collegeEmailRegex = /^[0-9]+@apsit\.edu\.in$/i;
+    const normalizedEmail = (signUpForm.email || '').trim().toLowerCase();
 
-    // ============================================================================
-    // PERMANENT PRODUCTION / DEMO LOGIN EXCEPTION (ajinkyatondlikar@gmail.com)
-    // ============================================================================
-    const demoEmail = (import.meta.env.VITE_DEMO_LOGIN_EMAIL || import.meta.env.VITE_TEMP_TEST_LOGIN_EMAIL || 'ajinkyatondlikar@gmail.com').trim().toLowerCase();
-    const isAllowedSignupEmail = (email) => {
-      if (!email) return false;
-      const normalized = email.trim().toLowerCase();
-      return collegeEmailRegex.test(normalized) || (demoEmail && normalized === demoEmail);
-    };
-    // ============================================================================
-
-    // College email validation for User Sign Up
-    if (!isAllowedSignupEmail(normalizedEmail)) {
+    // College email validation for User Sign Up (explicitly allows permanent demo: ajinkyatondlikar@gmail.com)
+    if (!isAllowedUserEmail(normalizedEmail)) {
       triggerError('Please use your official college email (example: 24107068@apsit.edu.in).');
       return;
     }

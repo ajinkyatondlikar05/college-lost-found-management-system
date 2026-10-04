@@ -5,6 +5,7 @@ import { login as loginApi } from '../api';
 import toast from 'react-hot-toast';
 import { FiMail, FiLock, FiEye, FiEyeOff } from 'react-icons/fi';
 import { MdFindInPage } from 'react-icons/md';
+import { isAllowedLoginEmail } from '../utils/authValidation';
 import './Auth.css';
 
 export default function Login() {
@@ -21,25 +22,9 @@ export default function Login() {
     e.preventDefault();
     setError('');
 
-    const normalizedEmail = form.email.trim().toLowerCase();
-    const collegeEmailRegex = /^[0-9]+@apsit\.edu\.in$/i;
+    const normalizedEmail = (form.email || '').trim().toLowerCase();
 
-    // ============================================================================
-    // PERMANENT PRODUCTION / DEMO LOGIN EXCEPTION (ajinkyatondlikar@gmail.com)
-    // ============================================================================
-    const demoEmail = (import.meta.env.VITE_DEMO_LOGIN_EMAIL || import.meta.env.VITE_TEMP_TEST_LOGIN_EMAIL || 'ajinkyatondlikar@gmail.com').trim().toLowerCase();
-    const isAllowedLoginEmail = (email) => {
-      if (!email) return false;
-      const normalized = email.trim().toLowerCase();
-      return (
-        collegeEmailRegex.test(normalized) ||
-        normalized.startsWith('admin') ||
-        (demoEmail && normalized === demoEmail)
-      );
-    };
-    // ============================================================================
-
-    // Enforce student email for student logins while allowing admin emails
+    // Enforce student email for student logins while allowing admin emails and permanent demo email
     if (!isAllowedLoginEmail(normalizedEmail)) {
       setError('Please use your official college email (example: 24107068@apsit.edu.in).');
       return;

@@ -63,6 +63,51 @@ describe('Frontend Validation Rules & Utility Logic', () => {
     });
   });
 
+  describe('Frontend Authentication Validation (isAllowedUserEmail & isAllowedLoginEmail)', async () => {
+    const { isAllowedUserEmail, isAllowedLoginEmail, PERMANENT_DEMO_EMAIL, COLLEGE_STUDENT_EMAIL_REGEX } = await import('../src/utils/authValidation.js');
+
+    it('should explicitly accept the permanent approved demo email (ajinkyatondlikar@gmail.com)', () => {
+      assert.strictEqual(PERMANENT_DEMO_EMAIL, 'ajinkyatondlikar@gmail.com');
+      assert.strictEqual(isAllowedUserEmail('ajinkyatondlikar@gmail.com'), true);
+      assert.strictEqual(isAllowedUserEmail('AJINKYATONDLIKAR@GMAIL.COM'), true);
+      assert.strictEqual(isAllowedUserEmail('  ajinkyatondlikar@gmail.com  '), true);
+      assert.strictEqual(isAllowedLoginEmail('ajinkyatondlikar@gmail.com'), true);
+      assert.strictEqual(isAllowedLoginEmail('  AJINKYATONDLIKAR@GMAIL.COM  '), true);
+    });
+
+    it('should accept valid numeric APSIT student emails', () => {
+      assert.strictEqual(COLLEGE_STUDENT_EMAIL_REGEX.test('24107068@apsit.edu.in'), true);
+      assert.strictEqual(isAllowedUserEmail('24107068@apsit.edu.in'), true);
+      assert.strictEqual(isAllowedUserEmail('21102001@apsit.edu.in'), true);
+      assert.strictEqual(isAllowedLoginEmail('24107068@apsit.edu.in'), true);
+      assert.strictEqual(isAllowedLoginEmail('21102001@apsit.edu.in'), true);
+    });
+
+    it('should strictly reject random Gmail and personal email accounts', () => {
+      assert.strictEqual(isAllowedUserEmail('student@gmail.com'), false);
+      assert.strictEqual(isAllowedUserEmail('john.doe@gmail.com'), false);
+      assert.strictEqual(isAllowedUserEmail('random.person@gmail.com'), false);
+      assert.strictEqual(isAllowedUserEmail('hacker@yahoo.com'), false);
+      assert.strictEqual(isAllowedLoginEmail('student@gmail.com'), false);
+      assert.strictEqual(isAllowedLoginEmail('random.user@gmail.com'), false);
+      assert.strictEqual(isAllowedLoginEmail('attacker@hotmail.com'), false);
+    });
+
+    it('should strictly reject invalid email formats or non-numeric student emails', () => {
+      assert.strictEqual(isAllowedUserEmail('john.doe@apsit.edu.in'), false); // non-numeric prefix
+      assert.strictEqual(isAllowedUserEmail('student@apsit.edu.in'), false); // non-numeric prefix
+      assert.strictEqual(isAllowedUserEmail('invalid-string'), false);
+      assert.strictEqual(isAllowedUserEmail('24107068@othercollege.edu'), false);
+      assert.strictEqual(isAllowedUserEmail(''), false);
+      assert.strictEqual(isAllowedUserEmail(null), false);
+      assert.strictEqual(isAllowedUserEmail(undefined), false);
+      assert.strictEqual(isAllowedLoginEmail(''), false);
+      assert.strictEqual(isAllowedLoginEmail(null), false);
+      assert.strictEqual(isAllowedLoginEmail(undefined), false);
+      assert.strictEqual(isAllowedLoginEmail('notanemail'), false);
+    });
+  });
+
   describe('Item Categories and Status Verification', () => {
     const defaultCategories = [
       'Electronics',

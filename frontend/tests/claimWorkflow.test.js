@@ -1,6 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { getImageUrl } from '../src/api.js';
+import { getItemPrimaryStatus, formatTimelineDate, buildReportTimeline } from '../src/utils/reportCardUtils.js';
 
 describe('Claim & Report Found Item Workflow UI Rules', () => {
   // Validator mirrored from ItemDetail.jsx and Dashboard.jsx
@@ -1808,6 +1809,201 @@ describe('Claim & Report Found Item Workflow UI Rules', () => {
       assert.strictEqual(claimedCount, 3);
       assert.strictEqual(lostCount + foundCount + claimedCount, allItems.length);
       assert.strictEqual(allItems.length, 10);
+    });
+  });
+
+  describe('Report Card UI Presentation & Dynamic Timeline Mapping (Section 10)', () => {
+    const mockCreatedAt = '2026-10-04T10:32:00.000Z';
+    const mockFinderReportAt = '2026-10-04T14:15:00.000Z';
+    const mockConfirmedAt = '2026-10-04T17:40:00.000Z';
+    const mockResolvedAt = '2026-10-04T17:42:00.000Z';
+    const mockRejectedAt = '2026-10-04T15:20:00.000Z';
+
+    it('A. Newly reported lost item -> primary status LOST only (no contradictory badges)', () => {
+      const item = {
+        _id: '507f1f77bcf86cd799439011',
+        title: 'College ID Card',
+        type: 'lost',
+        status: 'Active',
+        createdAt: mockCreatedAt,
+        foundBy: null,
+        claims: [],
+      };
+
+      const primaryStatus = getItemPrimaryStatus(item);
+      assert.strictEqual(primaryStatus.label, 'LOST');
+      assert.strictEqual(primaryStatus.state, 'lost');
+      assert.strictEqual(primaryStatus.badgeClass, 'badge-lost');
+
+      const timeline = buildReportTimeline(item);
+      assert.strictEqual(timeline[0].title, 'Reported Lost');
+      assert.strictEqual(timeline[0].status, 'completed');
+      assert.ok(timeline[0].date);
+      assert.strictEqual(timeline[1].title, 'Active');
+      assert.strictEqual(timeline[1].status, 'completed');
+      assert.strictEqual(timeline[2].status, 'pending');
+      assert.strictEqual(timeline[2].date, null);
+    });
+
+    it('B. Finder reports item -> primary status FOUND only', () => {
+      const item = {
+        _id: '507f1f77bcf86cd799439012',
+        title: 'Casio Scientific Calculator',
+        type: 'lost',
+        status: 'Active',
+        createdAt: mockCreatedAt,
+        foundBy: { name: 'Rahul Sharma', email: '22104050@apsit.edu.in' },
+        claims: [
+          {
+            status: 'Contacted',
+            submittedAt: mockFinderReportAt,
+          },
+        ],
+      };
+
+      const primaryStatus = getItemPrimaryStatus(item);
+      assert.strictEqual(primaryStatus.label, 'FOUND');
+      assert.strictEqual(primaryStatus.state, 'found');
+      assert.strictEqual(primaryStatus.badgeClass, 'badge-found');
+
+      const timeline = buildReportTimeline(item);
+      assert.strictEqual(timeline[0].title, 'Reported Lost');
+      assert.strictEqual(timeline[1].title, 'Active');
+      assert.strictEqual(timeline[2].title, 'Finder Reported');
+      assert.strictEqual(timeline[2].status, 'completed');
+      assert.ok(timeline[2].date);
+      assert.strictEqual(timeline[3].title, 'Owner Confirmed Recovery');
+      assert.strictEqual(timeline[3].status, 'pending');
+    });
+
+    it('C. Owner rejects finder -> primary status returns to LOST only (Path C timeline)', () => {
+      const item = {
+        _id: '507f1f77bcf86cd799439013',
+        title: 'Noise Smartwatch',
+        type: 'lost',
+        status: 'Active',
+        createdAt: mockCreatedAt,
+        foundBy: null, // cleared upon rejection
+        claims: [
+          {
+            status: 'rejected',
+            submittedAt: mockFinderReportAt,
+            rejectedAt: mockRejectedAt,
+          },
+        ],
+      };
+
+      const primaryStatus = getItemPrimaryStatus(item);
+      assert.strictEqual(primaryStatus.label, 'LOST');
+      assert.strictEqual(primaryStatus.state, 'lost');
+
+      const timeline = buildReportTimeline(item);
+      assert.strictEqual(timeline.length, 5);
+      assert.deepStrictEqual(
+        timeline.map((s) => s.title),
+        [
+          'Reported Lost',
+          'Active',
+          'Finder Reported',
+          'Owner Rejected Finder',
+          'Active / Available Again',
+        ]
+      );
+      assert.strictEqual(timeline.every((s) => s.status === 'completed'), true);
+      assert.ok(timeline[2].date);
+      assert.ok(timeline[3].date);
+      assert.ok(timeline[4].date);
+    });
+
+    it('D. Owner self-recovers with OTP (Path A) -> primary status RECOVERED only', () => {
+      const item = {
+        _id: '507f1f77bcf86cd799439014',
+        title: 'Bike Key',
+        type: 'lost',
+        status: 'Resolved',
+        recoveryType: 'owner_found',
+        createdAt: mockCreatedAt,
+        ownerConfirmedAt: mockConfirmedAt,
+        resolvedAt: mockResolvedAt,
+        foundBy: null,
+        claims: [],
+      };
+
+      const primaryStatus = getItemPrimaryStatus(item);
+      assert.strictEqual(primaryStatus.label, 'RECOVERED');
+      assert.strictEqual(primaryStatus.state, 'recovered');
+      assert.strictEqual(primaryStatus.badgeClass, 'badge-recovered');
+
+      const timeline = buildReportTimeline(item);
+      assert.strictEqual(timeline.length, 5);
+      assert.deepStrictEqual(
+        timeline.map((s) => s.title),
+        ['Reported Lost', 'Active', 'Owner Found Item', 'OTP Verified', 'Recovered']
+      );
+      // Verify no finder steps appear
+      assert.strictEqual(timeline.some((s) => s.title.includes('Finder')), false);
+      assert.strictEqual(timeline.some((s) => s.title.includes('Owner Confirmed Recovery')), false);
+      assert.strictEqual(timeline.every((s) => s.status === 'completed'), true);
+      assert.ok(timeline[2].date);
+      assert.ok(timeline[3].date);
+      assert.ok(timeline[4].date);
+    });
+
+    it('E. Finder recovery completed with owner OTP (Path B) -> primary status RECOVERED only', () => {
+      const item = {
+        _id: '507f1f77bcf86cd799439015',
+        title: 'HP Laptop Charger',
+        type: 'lost',
+        status: 'Resolved',
+        recoveryType: 'finder_found',
+        createdAt: mockCreatedAt,
+        ownerConfirmedAt: mockConfirmedAt,
+        resolvedAt: mockResolvedAt,
+        foundBy: { name: 'Pooja Patil', email: '22104060@apsit.edu.in' },
+        claims: [
+          {
+            status: 'resolved',
+            submittedAt: mockFinderReportAt,
+            ownerConfirmedAt: mockConfirmedAt,
+            resolvedAt: mockResolvedAt,
+          },
+        ],
+      };
+
+      const primaryStatus = getItemPrimaryStatus(item);
+      assert.strictEqual(primaryStatus.label, 'RECOVERED');
+      assert.strictEqual(primaryStatus.state, 'recovered');
+
+      const timeline = buildReportTimeline(item);
+      assert.strictEqual(timeline.length, 6);
+      assert.deepStrictEqual(
+        timeline.map((s) => s.title),
+        [
+          'Reported Lost',
+          'Active',
+          'Finder Reported',
+          'Owner Confirmed Recovery',
+          'OTP Verified',
+          'Recovered',
+        ]
+      );
+      // Verify no owner self-recovery step appears
+      assert.strictEqual(timeline.some((s) => s.title === 'Owner Found Item'), false);
+      assert.strictEqual(timeline.every((s) => s.status === 'completed'), true);
+      assert.ok(timeline[2].date);
+      assert.ok(timeline[3].date);
+      assert.ok(timeline[4].date);
+      assert.ok(timeline[5].date);
+    });
+
+    it('Timeline date formatting preserves real timestamps without inventing dates', () => {
+      const formatted = formatTimelineDate('2026-10-04T10:32:00.000Z');
+      assert.ok(formatted);
+      assert.match(formatted, /04 Oct 2026/);
+
+      assert.strictEqual(formatTimelineDate(null), null);
+      assert.strictEqual(formatTimelineDate(undefined), null);
+      assert.strictEqual(formatTimelineDate('invalid-date'), null);
     });
   });
 });
